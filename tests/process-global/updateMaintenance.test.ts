@@ -477,8 +477,14 @@ const createBunUpdateFixture = async (
     join(projectDirectory, "package.json"),
     '{"dependencies":{"rea-agents":"3.2.1"}}\n',
   );
-  if (project === "ancestor")
+  if (project === "ancestor") {
     await writeFile(join(projectDirectory, "bun.lock"), "{}\n");
+    // Bun leaves a migrated npm lockfile in place; this one records nothing.
+    await writeFile(
+      join(projectDirectory, "package-lock.json"),
+      '{"lockfileVersion":3,"requires":true,"packages":{}}\n',
+    );
+  }
   await writeFile(versionPath, "3.2.1");
   await writeFile(
     join(packageRoot, "scripts", "rea.mjs"),

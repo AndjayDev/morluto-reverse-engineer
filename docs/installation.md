@@ -409,7 +409,11 @@ project. Like Bun, the updater starts at the Bun global directory
 `$XDG_CACHE_HOME/.bun/install/global`, else `~/.bun/install/global`) and uses
 the nearest directory with a `package.json`. When the global directory has
 none, that is an ancestor such as the home directory; the updater accepts it
-only when it also has a Bun lockfile (`bun.lock` or `bun.lockb`). The running
+only when it also has a Bun lockfile (`bun.lock` or `bun.lockb`) and no other
+package manager may have installed REA there: an npm lockfile left by Bun's
+migration (`package-lock.json`, `npm-shrinkwrap.json`, or
+`node_modules/.package-lock.json`) must not record `rea-agents`, and the
+project must have no `yarn.lock` or `pnpm-lock.yaml`. The running
 package must be that project's `node_modules/rea-agents`, and Bun commands run
 with the project pinned as `BUN_INSTALL_GLOBAL_DIR`.
 Its maintenance plan selects only existing REA registrations and an already
