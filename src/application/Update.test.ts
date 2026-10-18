@@ -133,7 +133,7 @@ describe("REA update", () => {
     const host = new FakeUpdateHost();
     host.installationResult = {
       manager: "bun",
-      globalDirectory: "/home/user/.bun/install/global",
+      projectDirectory: "/home/user/.bun/install/global",
       packageRoot: "/home/user/.bun/install/global/node_modules/rea-agents",
     };
     expect(await runUpdate("3.2.1", host, "structured")).toMatchObject({
@@ -386,28 +386,81 @@ describe("npm installation ownership", () => {
 });
 
 describe("Bun installation ownership", () => {
-  const globalDirectory = "/home/user/.bun/install/global";
+  const home = "/home/user";
+  const globalDirectory = `${home}/.bun/install/global`;
   const packageRoot = `${globalDirectory}/node_modules/rea-agents`;
+  const homePackageRoot = `${home}/node_modules/rea-agents`;
   // Fixture paths are POSIX; join() may produce Windows separators on Windows hosts.
   const host = (
-    manifests: readonly string[] = [`${globalDirectory}/package.json`],
+    files: readonly string[] = [`${globalDirectory}/package.json`],
   ): BunInstallationHost => ({
     canonicalPath: (path) => Promise.resolve(path.replaceAll("\\", "/")),
     isFile: (path) =>
-      Promise.resolve(manifests.includes(path.replaceAll("\\", "/"))),
+      Promise.resolve(files.includes(path.replaceAll("\\", "/"))),
   });
 
   it("identifies the package inside Bun's global project", async () => {
     await expect(
       detectBunInstallation(packageRoot, globalDirectory, host()),
-    ).resolves.toEqual({ manager: "bun", globalDirectory, packageRoot });
+    ).resolves.toEqual({
+      manager: "bun",
+      projectDirectory: globalDirectory,
+      packageRoot,
+    });
   });
 
-  it("refuses a global directory without its manifest, which Bun would resolve to an ancestor project", async () => {
+  it.each(["bun.lock", "bun.lockb"])(
+    "follows Bun to the nearest ancestor project with %s when the global directory has no manifest",
+    async (lockfile) => {
+      await expect(
+        detectBunInstallation(
+          homePackageRoot,
+          globalDirectory,
+          host([`${home}/package.json`, `${home}/${lockfile}`]),
+        ),
+      ).resolves.toEqual({
+        manager: "bun",
+        projectDirectory: home,
+        packageRoot: homePackageRoot,
+      });
+    },
+  );
+
+  it("refuses an ancestor project that Bun has not installed into", async () => {
     await expect(
-      detectBunInstallation(packageRoot, globalDirectory, host([])),
+      detectBunInstallation(
+        homePackageRoot,
+        globalDirectory,
+        host([`${home}/package.json`, `${home}/package-lock.json`]),
+      ),
     ).resolves.toBeUndefined();
   });
+
+  it.each([
+    ["the global directory without its manifest", packageRoot, []],
+    [
+      "the global directory while Bun resolves an ancestor",
+      packageRoot,
+      [`${home}/package.json`, `${home}/bun.lock`],
+    ],
+    [
+      "an ancestor beyond the nearest project",
+      homePackageRoot,
+      [
+        `${home}/.bun/package.json`,
+        `${home}/.bun/bun.lock`,
+        `${home}/package.json`,
+        `${home}/bun.lock`,
+      ],
+    ],
+  ] as const)(
+    "refuses a package in %s, which Bun would not update",
+    async (_, root, files) => {
+      await expect(
+        detectBunInstallation(root, globalDirectory, host(files)),
+      ).resolves.toBeUndefined();
+    },
+  );
 
   it.each([
     "/home/user/project/node_modules/rea-agents",

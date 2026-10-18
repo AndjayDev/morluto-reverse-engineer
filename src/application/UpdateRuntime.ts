@@ -187,7 +187,7 @@ const nonemptyEnvironment = (value: string | undefined): string | undefined =>
   value === undefined || value.length === 0 ? undefined : value;
 
 /**
- * Bun's global project directory for the selected environment, in Bun's precedence:
+ * Bun's configured global directory for the selected environment, in Bun's precedence:
  * BUN_INSTALL_GLOBAL_DIR, then $BUN_INSTALL/install/global, then
  * $XDG_CACHE_HOME/.bun/install/global, then ~/.bun/install/global.
  * Resolve against the caller's cwd before reusing the path as a subprocess cwd.
@@ -207,11 +207,41 @@ export const bunGlobalDirectory = (
   return resolve(cacheRoot, ".bun", "install", "global");
 };
 
+/** Lockfiles Bun writes into a project it installs packages into. */
+const BUN_LOCKFILES = ["bun.lock", "bun.lockb"] as const;
+
 /**
- * Identify the running package as Bun's global installation.
- * Bun walks up to an ancestor project when its global directory has no
- * package.json, so the global manifest must exist before `bun add --global`
- * can be trusted to update this package root.
+ * Bun installs global packages into the nearest directory, starting at its
+ * global directory, that has a package.json. Without a global manifest that is
+ * an ancestor project, such as the home directory.
+ */
+const bunGlobalProject = async (
+  globalDirectory: string,
+  host: BunInstallationHost,
+): Promise<string | undefined> => {
+  let directory = globalDirectory;
+  while (!(await host.isFile(join(directory, "package.json")))) {
+    const parent = dirname(directory);
+    if (parent === directory) return undefined;
+    directory = parent;
+  }
+  return directory;
+};
+
+const hasBunLockfile = async (
+  directory: string,
+  host: BunInstallationHost,
+): Promise<boolean> => {
+  for (const lockfile of BUN_LOCKFILES)
+    if (await host.isFile(join(directory, lockfile))) return true;
+  return false;
+};
+
+/**
+ * Identify the running package as Bun's global installation: the project Bun
+ * installs global packages into must own this package root. An ancestor
+ * project also needs a Bun lockfile, so Bun never updates a project that
+ * another package manager installed.
  */
 export const detectBunInstallation = async (
   packageRoot: string,
@@ -219,20 +249,24 @@ export const detectBunInstallation = async (
   host: BunInstallationHost,
 ): Promise<BunInstallation | undefined> => {
   try {
-    const canonicalPackageRoot = await host.canonicalPath(packageRoot);
-    const globalPackageRoot = await host.canonicalPath(
-      join(globalDirectory, "node_modules", PRODUCT_IDENTITY.packageName),
-    );
+    const projectDirectory = await bunGlobalProject(globalDirectory, host);
     if (
-      canonicalPackageRoot !== globalPackageRoot ||
-      !(await host.isFile(join(globalDirectory, "package.json")))
+      projectDirectory === undefined ||
+      (projectDirectory !== globalDirectory &&
+        !(await hasBunLockfile(projectDirectory, host)))
     )
       return undefined;
-    return {
-      manager: "bun",
-      globalDirectory,
-      packageRoot: canonicalPackageRoot,
-    };
+    const canonicalPackageRoot = await host.canonicalPath(packageRoot);
+    const projectPackageRoot = await host.canonicalPath(
+      join(projectDirectory, "node_modules", PRODUCT_IDENTITY.packageName),
+    );
+    return canonicalPackageRoot === projectPackageRoot
+      ? {
+          manager: "bun",
+          projectDirectory,
+          packageRoot: canonicalPackageRoot,
+        }
+      : undefined;
   } catch (cause: unknown) {
     // best-effort cleanup: optional install-location probing; unknown means not Bun-managed.
     void cause;
@@ -307,7 +341,7 @@ const isFile = async (path: string): Promise<boolean> => {
   try {
     return (await stat(path)).isFile();
   } catch (cause: unknown) {
-    // best-effort cleanup: a missing or unreadable manifest is not an owned Bun global project.
+    // best-effort cleanup: a missing or unreadable file is absent from Bun ownership evidence.
     void cause;
     return false;
   }
@@ -315,9 +349,10 @@ const isFile = async (path: string): Promise<boolean> => {
 
 /**
  * Environment and working directory for package-manager subprocesses.
- * Bun commands run inside the identified global project with that directory
- * pinned, so the caller's current project and Bun's ancestor search are never
- * selected. npm keeps the caller's working directory; its prefix is explicit.
+ * Bun commands run inside the identified project, which is also pinned as
+ * Bun's global directory, so neither the caller's current project nor another
+ * ancestor search can select a different project. npm keeps the caller's
+ * working directory; its prefix is explicit.
  */
 const packageManagerContext = (
   installation: UpdateInstallation | undefined,
@@ -330,9 +365,9 @@ const packageManagerContext = (
     ? {
         environment: {
           ...environment,
-          BUN_INSTALL_GLOBAL_DIR: installation.globalDirectory,
+          BUN_INSTALL_GLOBAL_DIR: installation.projectDirectory,
         },
-        workingDirectory: installation.globalDirectory,
+        workingDirectory: installation.projectDirectory,
       }
     : { environment, workingDirectory: undefined };
 
