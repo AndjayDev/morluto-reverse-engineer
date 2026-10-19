@@ -14,6 +14,15 @@ import type {
 /** Which bound a `limit` failure hit, so callers need not infer it. */
 export type ArtifactReaderBoundary = "file-size" | "capacity" | "memory";
 
+/**
+ * The exact bound a `limit` failure exceeded: `key` names it as a reported
+ * limit (e.g. `max_metadata_read_bytes`) and `maximum` is its value.
+ */
+export interface ArtifactReaderLimit {
+  readonly key: string;
+  readonly maximum: number;
+}
+
 export interface ArtifactReaderFailureOptions extends ErrorOptions {
   readonly cancellation?: { readonly reason: unknown } | undefined;
   readonly cleanup?: AnalysisCleanupObservation | undefined;
@@ -22,6 +31,8 @@ export interface ArtifactReaderFailureOptions extends ErrorOptions {
   readonly partialObservation?: AnalysisPartialObservation | undefined;
   /** The constrained resource bound for a limit failure. */
   readonly boundary?: ArtifactReaderBoundary;
+  /** The exceeded bound's name and value, when the reader knows it. */
+  readonly limit?: ArtifactReaderLimit;
 }
 
 /** Archive-neutral entry metadata. Reader adapters never choose output paths. */
@@ -37,6 +48,14 @@ export interface ArtifactEntry {
   readonly unpacked: boolean;
   readonly limitations: readonly string[];
   readonly adapterKey: string;
+  /**
+   * The name exactly as the container stores it, when it differs from `path`:
+   * for a ZIP member, the raw central-directory name (e.g. `./classes.dex`, or
+   * the name an Info-ZIP Unicode Path extra field replaces in `path`). Runtimes
+   * that look members up by stored name (the JDK, ART) must match on this, not
+   * on `path`.
+   */
+  readonly storedPath?: string;
   /** Filesystem identity captured during traversal, when supplied by an adapter. */
   readonly sourceIdentity?: {
     readonly device: bigint;
@@ -92,6 +111,7 @@ export const sameArtifactEntry = (
   entry.declaredSha256 === produced.declaredSha256 &&
   entry.unpacked === produced.unpacked &&
   entry.adapterKey === produced.adapterKey &&
+  entry.storedPath === produced.storedPath &&
   entry.limitations.length === produced.limitations.length &&
   entry.limitations.every(
     (limitation, index) => limitation === produced.limitations[index],
@@ -146,6 +166,8 @@ export class ArtifactReaderFailure extends Error {
   readonly partialObservation: AnalysisPartialObservation | undefined;
   /** The constrained bound for a `limit` reason, when the reader knows it. */
   readonly boundary: ArtifactReaderBoundary | undefined;
+  /** The exceeded bound for a `limit` reason, when the reader knows it. */
+  readonly limit: ArtifactReaderLimit | undefined;
 
   constructor(
     readonly reason:
@@ -176,6 +198,7 @@ export class ArtifactReaderFailure extends Error {
       options?.cleanupLeases ?? (this.cleanup === undefined ? [] : undefined);
     this.partialObservation = options?.partialObservation;
     this.boundary = options?.boundary;
+    this.limit = options?.limit;
   }
 
   /** Preserve the primary failure and observation. Supplied leases must cover all merged cleanup. */
@@ -220,6 +243,7 @@ export class ArtifactReaderFailure extends Error {
         ...(primary.boundary === undefined
           ? {}
           : { boundary: primary.boundary }),
+        ...(primary.limit === undefined ? {} : { limit: primary.limit }),
         ...(mergedObservation === undefined
           ? {}
           : { partialObservation: mergedObservation }),

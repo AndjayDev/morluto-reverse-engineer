@@ -75,6 +75,7 @@ export class ArtifactFileCleanupFailure<
         ...(projected.boundary === undefined
           ? {}
           : { boundary: projected.boundary }),
+        ...(projected.limit === undefined ? {} : { limit: projected.limit }),
       },
       projected.details,
     );

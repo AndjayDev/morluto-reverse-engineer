@@ -2,6 +2,7 @@ import { writeOrderedZip } from "../../tests/fixtures/artifactEntryOrder.js";
 import { ArtifactReaderFailure } from "./ArtifactReader.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { crc32 } from "node:zlib";
 
 import {
   TextReader,
@@ -67,6 +68,27 @@ describe("ZipArtifactReader decompression budget", () => {
       await expect(enumerate(reader)).rejects.toMatchObject({
         name: "ArtifactReaderFailure",
         reason: "limit",
+        boundary: "capacity",
+        limit: {
+          key: "max_decompressed_bytes",
+          maximum: MINIMUM_ARTIFACT_DECOMPRESSION_BYTES,
+        },
+      });
+    } finally {
+      await reader.close();
+    }
+  });
+
+  it("names the metadata read budget a central directory exceeds", async () => {
+    const directory = await createTestTempDirectory("rea-zip-metadata-");
+    const path = await writeZipWithDeclaredSize(directory, [1, 1, 1]);
+    const reader = new ZipArtifactReader(path, "zip", 64);
+    try {
+      await expect(enumerate(reader)).rejects.toMatchObject({
+        name: "ArtifactReaderFailure",
+        reason: "limit",
+        boundary: "memory",
+        limit: { key: "max_metadata_read_bytes", maximum: 64 },
       });
     } finally {
       await reader.close();
@@ -171,6 +193,151 @@ describe("ZipArtifactReader decompression budget", () => {
         })(),
       ).rejects.toThrow("Invalid uncompressed size");
       expect(deliveredBytes).toBeLessThan(content.length);
+    } finally {
+      await reader.close();
+    }
+  });
+});
+
+/** Info-ZIP Unicode Path extra field (0x7075) naming `unicode` for `raw`. */
+const unicodePathField = (raw: string, unicode: string): Uint8Array => {
+  const name = Buffer.from(unicode, "utf8");
+  const field = Buffer.alloc(5 + name.length);
+  field.writeUInt8(1, 0);
+  field.writeUInt32LE(crc32(Buffer.from(raw, "latin1")), 1);
+  name.copy(field, 5);
+  return field;
+};
+
+const listEntries = async (path: string) => {
+  const reader = new ZipArtifactReader(path, "zip");
+  try {
+    const entries = [];
+    for await (const entry of reader.entries()) entries.push(entry);
+    return entries;
+  } finally {
+    await reader.close();
+  }
+};
+
+describe("ZipArtifactReader member names", () => {
+  it("keeps the raw central-directory name as storedPath when a Unicode Path field renames the member", async () => {
+    const directory = await createTestTempDirectory("rea-zip-unicode-path-");
+    const path = join(directory, "unicode-path.zip");
+    const writer = new ZipWriter(new Uint8ArrayWriter(), {
+      useUnicodeFileNames: false,
+    });
+    await writer.add("META-INF/MANIFEST.MF", new TextReader("stored"), {
+      extraField: new Map([
+        [0x7075, unicodePathField("META-INF/MANIFEST.MF", "META-INF/OTHER.MF")],
+      ]),
+    });
+    await writer.add("./plain.txt", new TextReader("plain"));
+    await writeFile(path, await writer.close());
+
+    const [renamed, prefixed] = await listEntries(path);
+    // The logical path follows the Unicode Path name; a runtime that looks the
+    // member up by its stored name (the JDK) still finds the manifest.
+    expect(renamed).toMatchObject({
+      path: "META-INF/OTHER.MF",
+      storedPath: "META-INF/MANIFEST.MF",
+    });
+    expect(renamed?.limitations.join("\n")).toContain(
+      'stored name "META-INF/MANIFEST.MF" differs from its Info-ZIP Unicode Path extra field name "META-INF/OTHER.MF"',
+    );
+    expect(prefixed).toMatchObject({
+      path: "plain.txt",
+      storedPath: "./plain.txt",
+    });
+  });
+
+  it("classifies a directory only by a trailing slash and reads attribute-marked members as files", async () => {
+    const directory = await createTestTempDirectory("rea-zip-dir-attributes-");
+    const path = join(directory, "dir-attributes.zip");
+    const writer = new ZipWriter(new Uint8ArrayWriter());
+    // Unix mode 040755 and the MS-DOS directory bit (host 0) on names without
+    // a trailing "/": the JDK and Python's zipfile read both as files.
+    await writer.add("unix-mode", new TextReader("unix bytes"), {
+      externalFileAttributes: 0o040755 * 0x10000,
+    });
+    await writer.add("msdos-attribute", new TextReader("msdos bytes"), {
+      msDosCompatible: true,
+      externalFileAttributes: 0x10,
+    });
+    await writer.add("real/", undefined, { directory: true });
+    await writeFile(path, await writer.close());
+
+    const reader = new ZipArtifactReader(path, "zip");
+    try {
+      const entries = [];
+      for await (const entry of reader.entries()) entries.push(entry);
+      expect(entries.map(({ path, kind }) => ({ path, kind }))).toEqual([
+        { path: "unix-mode", kind: "file" },
+        { path: "msdos-attribute", kind: "file" },
+        { path: "real/", kind: "directory" },
+      ]);
+      for (const [index, expected] of [
+        [0, "unix bytes"],
+        [1, "msdos bytes"],
+      ] as const) {
+        const entry = entries[index];
+        if (entry === undefined) throw new Error("Expected a ZIP member");
+        expect(entry.limitations.join("\n")).toContain(
+          "has directory external attributes",
+        );
+        const chunks: Buffer[] = [];
+        for await (const chunk of await reader.open(entry))
+          chunks.push(Buffer.from(chunk));
+        expect(Buffer.concat(chunks).toString()).toBe(expected);
+      }
+    } finally {
+      await reader.close();
+    }
+  });
+
+  it("classifies a directory by the stored name, never by a Unicode Path name", async () => {
+    const directory = await createTestTempDirectory("rea-zip-unicode-dir-");
+    const path = join(directory, "unicode-dir.zip");
+    const writer = new ZipWriter(new Uint8ArrayWriter(), {
+      useUnicodeFileNames: false,
+    });
+    // Stored file "foo" (8 bytes) whose Unicode Path names "foo/", and stored
+    // directory "bar/" whose Unicode Path names "bar": the JDK, Python and ART
+    // read the stored names, so "foo" is a file and "bar/" a directory.
+    await writer.add("foo", new TextReader("payload!"), {
+      extraField: new Map([[0x7075, unicodePathField("foo", "foo/")]]),
+    });
+    await writer.add("bar/", undefined, {
+      directory: true,
+      extraField: new Map([[0x7075, unicodePathField("bar/", "bar")]]),
+    });
+    await writeFile(path, await writer.close());
+
+    const reader = new ZipArtifactReader(path, "zip");
+    try {
+      const entries = [];
+      for await (const entry of reader.entries()) entries.push(entry);
+      expect(
+        entries.map(({ path, kind, storedPath }) => ({
+          path,
+          kind,
+          storedPath,
+        })),
+      ).toEqual([
+        { path: "foo/", kind: "file", storedPath: "foo" },
+        { path: "bar", kind: "directory", storedPath: "bar/" },
+      ]);
+      const [file] = entries;
+      if (file === undefined) throw new Error("Expected a ZIP member");
+      expect(file.declaredSize).toBe(8);
+      // A plain file mode is not reported as directory attributes.
+      expect(file.limitations.join("\n")).not.toContain(
+        "directory external attributes",
+      );
+      const chunks: Buffer[] = [];
+      for await (const chunk of await reader.open(file))
+        chunks.push(Buffer.from(chunk));
+      expect(Buffer.concat(chunks).toString()).toBe("payload!");
     } finally {
       await reader.close();
     }
