@@ -66,6 +66,8 @@ La configuración registra REA en tu agente e instala las instrucciones de traba
 
 ## Inicio rápido
 
+En Linux, Ghidra, JADX, el lanzamiento de herramientas de firmware y el análisis estático de JavaScript/Electron requieren un `ps` compatible con procps en el `PATH` de REA para comprobar la propiedad de los procesos. Los pasos de recuperación están en `docs/installation.md`, en "Linux owned-process prerequisite".
+
 ### Configura tu agente
 
 Con Node.js y npm instalados, ejecuta:
@@ -146,7 +148,7 @@ REA requiere Node.js 22.x (>=22.19), 24.x (>=24.11) o 26+, además de npm. Las h
 | Bytecode EVM                | Selectores de despacho, desplazamientos en bytes, argumentos inferidos y mutabilidad                                           | Entrada local con bytes sin procesar o representación hexadecimal, en Linux x64; [guía de EVM sin ejecutar](../evm-bytecode.md)        |
 | Rust binaries               | Embedded cargo-auditable dependency list                                                                                       | [Rust binaries](../rust-binaries.md)                                                                                                   |
 | Fallos de Linux registrados | Registros note sin procesar, registros/señales de cada hilo registrado y posibles correspondencias de memoria opcionales       | pwntools proporcionado por quien llama, en Linux x64; GDB/pwndbg opcionales; [fallos registrados](../recorded-crashes.md)              |
-| JavaScript / Electron       | Módulos, importaciones, mapas de código fuente, rutas, IPC y relaciones con complementos nativos                               | Node.js y npm; [análisis de aplicaciones](../javascript-application-workflows.md)                                                      |
+| JavaScript / Electron       | Módulos, importaciones, mapas de código fuente, rutas, IPC y relaciones con complementos nativos                               | Node.js y npm; Linux: `ps` compatible con procps; [análisis de aplicaciones](../javascript-application-workflows.md)                   |
 | Sitios web                  | Estructura de la página, scripts, observaciones de red y capturas de pantalla solicitadas                                      | Un navegador de la familia Chrome; [análisis del navegador](../browser-observation.md)                                                 |
 | Capturas de red guardadas   | Solicitudes, respuestas, contenido accesible de las cargas útiles y ubicaciones de origen                                      | HAR; mitmdump en Linux para capturas en formato nativo de mitmproxy; [guía de capturas](../web-network-captures.md)                    |
 | Capturas de paquetes        | Endpoints, DNS, TLS SNI, distribución de protocolos y solicitudes HTTP                                                         | tshark y capinfos suministrados por el autor de la llamada; [guía pcap](../pcap-analysis.md)                                           |
