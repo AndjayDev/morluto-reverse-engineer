@@ -65,6 +65,8 @@ export interface AnalysisErrorOptions extends ErrorOptions {
 /** Exact cleanup owner that can attribute its currently unresolved resources. */
 export interface AnalysisCleanupResourceOwner {
   readonly cleanupResources: readonly string[] | undefined;
+  /** True while a conjunctive owner still awaits one of its exact owners. */
+  readonly cleanupPending?: boolean;
 }
 
 /** Base class for expected analysis, provider, and session failures. */
@@ -124,11 +126,23 @@ export abstract class AnalysisError extends Error {
     const pending = [...this.#cleanupDependencies].filter(
       (dependency) => dependency.cleanupIncomplete,
     );
-    if (pending.length === 0) return [];
+    const ownerPending = this.#cleanupResourceOwner?.cleanupPending === true;
+    if (pending.length === 0 && !ownerPending) return [];
+    // A projection is the producer's authoritative (possibly redacted) view;
+    // never widen it with the owner's raw resources.
     if (this.#cleanupResourceProjection !== undefined)
       return this.#cleanupResourceProjection.cleanupResources;
+    const dependencyResources = pending.flatMap(
+      (dependency) => dependency.cleanupResources,
+    );
+    if (!ownerPending) return [...new Set(dependencyResources)];
+    // A conjunctive owner keeps its unresolved resources attributed next to
+    // the bound dependencies until every exact owner confirms release.
     return [
-      ...new Set(pending.flatMap((dependency) => dependency.cleanupResources)),
+      ...new Set([
+        ...dependencyResources,
+        ...(this.#cleanupResourceOwner?.cleanupResources ?? []),
+      ]),
     ];
   }
 
@@ -185,7 +199,8 @@ export abstract class AnalysisError extends Error {
     if (
       [...(this.#cleanupDependencies ?? [])].some(
         (dependency) => dependency.cleanupIncomplete,
-      )
+      ) ||
+      this.#cleanupResourceOwner?.cleanupPending === true
     )
       return this;
     this.#cleanupDependencies?.clear();

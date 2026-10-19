@@ -178,3 +178,25 @@ it("shares an in-flight release and permits one new attempt after failure", asyn
     for (const settle of pending) settle();
   }
 });
+
+it("keeps a redacted projection authoritative while a bound owner is pending", () => {
+  const lease = new AnalysisCleanupLease(async () => {}, [
+    "/secret/raw-runtime-path",
+  ]);
+  const source = new ProviderCleanupError("fixture", ["raw-owner"], {});
+  new AnalysisCleanupLeaseGroup(source, [lease]);
+  const redacted = new ProviderCleanupError(
+    "fixture",
+    ["redacted-projection"],
+    {},
+  );
+  redacted.bindCleanupDependencies([source], {
+    cleanupResources: ["redacted-projection"],
+  });
+  // The decoder binds the redacted error to the original runtime lease; the
+  // projection must stay the only resource view while that owner is pending.
+  new AnalysisCleanupLeaseGroup(redacted, [lease]);
+  expect(redacted.cleanupIncomplete).toBe(true);
+  expect(redacted.cleanupResources).toEqual(["redacted-projection"]);
+  expect(redacted.cleanupResources).not.toContain("/secret/raw-runtime-path");
+});

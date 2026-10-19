@@ -134,6 +134,11 @@ export class AnalysisCleanupLeaseGroup {
     return this.#error.deref() !== undefined;
   }
 
+  /** True while any exact owner in the group still awaits its release. */
+  get cleanupPending(): boolean {
+    return this.#pending.size > 0;
+  }
+
   ownerReleased(owner: AnalysisCleanupLease): void {
     if (!this.#pending.delete(owner) || this.#pending.size > 0) return;
     this.#error.deref()?.resolveCleanup();
