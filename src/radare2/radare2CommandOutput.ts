@@ -1,5 +1,8 @@
 import type { JsonValue } from "../domain/jsonValue.js";
-import { jsonValueSchema } from "../domain/jsonValue.js";
+import {
+  jsonValueSchema,
+  jsonValueValidationIssue,
+} from "../domain/jsonValue.js";
 
 /**
  * Parse trimmed command output as JSON for a lenient projection.
@@ -130,6 +133,12 @@ export const projectRadare2DeliveryViews = (
   // distorted projection.
   if (!jsonValueSchema.safeParse(projection.parsed).success) return {};
   if (!jsonNumberLiteralsRoundTrip(output)) return {};
+  // Evidence validates `raw_result` as its own JSON value, so a delivery view is
+  // validated one level deeper there. Reserve that level: a value exactly at the
+  // depth limit would otherwise pass this check and make Evidence creation
+  // throw, turning one command into a stopped session instead of a raw fallback.
+  if (jsonValueValidationIssue({ parsed: projection.parsed }) !== undefined)
+    return {};
   const summary = projectRadare2Summary(command, projection.parsed);
   return {
     parsed: projection.parsed,

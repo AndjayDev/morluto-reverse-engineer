@@ -467,11 +467,15 @@ describe("Radare2SessionManager command handling", () => {
     const started = await manager.start({ path: "/tmp/f" });
     if (!started.ok) throw started.error;
     const failed = await manager.close(started.value.session_id);
-    expect(failed.ok).toBe(false);
+    if (failed.ok) throw new Error("the injected stop must fail");
+    expect(failed.error.cleanupIncomplete).toBe(true);
     expect(manager.status(started.value.session_id)).toBeDefined();
     stopOutcome = { status: "verified-cleanup" };
     const retried = await manager.retryCleanupFailures();
     expect(retried.ok).toBe(true);
+    // The verified retry resolves the retained ownership error so callers are
+    // not left blocked on a cleanup failure that no longer exists.
+    expect(failed.error.cleanupIncomplete).toBe(false);
     expect(manager.status(started.value.session_id)).toBeUndefined();
   });
 });
@@ -581,6 +585,151 @@ describe("Radare2SessionManager r2pipe2 protocol failures", () => {
     if (!executed.ok)
       expect(executed.error._tag).toBe("AnalysisCapabilityUnavailableError");
     expect(manager.status(started.value.session_id)).toBeUndefined();
+    await manager.closeAll();
+  });
+});
+
+describe("Radare2SessionManager error replies", () => {
+  it("keeps the session when a reply fails before producing output", async () => {
+    const { spawnProcess } = createInjectedProcess({
+      startup: (control) => {
+        control.output("\0");
+      },
+      onWrite: (_text, commandControl) => {
+        queueMicrotask(() =>
+          commandControl.output(
+            `${JSON.stringify({
+              error: true,
+              value: 0,
+              code: 0,
+              logs: [
+                {
+                  type: "ERROR",
+                  origin: "r_core_cmd_subst_i",
+                  message: "Invalid tmpseek address 'sym._nope'",
+                },
+              ],
+            })}\0`,
+          ),
+        );
+      },
+    });
+    const manager = new Radare2SessionManager(
+      {},
+      { spawnProcess, frameTimeoutMs: 5_000 },
+    );
+    const started = await manager.start({ path: "/tmp/f" });
+    if (!started.ok) throw started.error;
+
+    const executed = await manager.execute(
+      started.value.session_id,
+      "pdg @ sym._nope",
+    );
+
+    // The failure belongs to the command, not the protocol: radare2 omits `res`
+    // when it fails before producing output, and the reason arrives in logs.
+    expect(executed.ok).toBe(true);
+    if (executed.ok) {
+      expect(executed.value.result.command_error).toBe(true);
+      expect(executed.value.result.output).toBe("");
+      expect(executed.value.result.command_logs[0]?.message).toContain(
+        "Invalid tmpseek address",
+      );
+    }
+    expect(manager.status(started.value.session_id)).toBeDefined();
+    await manager.closeAll();
+  });
+});
+
+describe("Radare2SessionManager shutdown", () => {
+  it("rejects a shutdown that cannot verify its stop and frees the session on retry", async () => {
+    const { spawnProcess } = createInjectedProcess({
+      startup: (control) => {
+        control.output("\0");
+      },
+    });
+    let stopOutcome:
+      | { status: "incomplete"; reason: string }
+      | { status: "verified-cleanup" } = {
+      status: "incomplete",
+      reason: "injected uncertainty",
+    };
+    const manager = new Radare2SessionManager(
+      {},
+      { spawnProcess, stopProcess: async () => stopOutcome },
+    );
+    const started = await manager.start({ path: "/tmp/f" });
+    if (!started.ok) throw started.error;
+
+    await expect(manager.closeAll()).rejects.toThrow(AggregateError);
+    expect(manager.status(started.value.session_id)).toBeDefined();
+
+    stopOutcome = { status: "verified-cleanup" };
+    const retried = await manager.retryCleanupFailures();
+    expect(retried.ok).toBe(true);
+    expect(manager.status(started.value.session_id)).toBeUndefined();
+  });
+});
+
+describe("Radare2SessionManager provider resolution", () => {
+  it("resolves the configured executable for the host platform", async () => {
+    const { spawnProcess, control } = createInjectedProcess({
+      startup: (startupControl) => {
+        startupControl.output("\0");
+      },
+    });
+    const resolveExecutable = vi.fn(
+      (command: string) => `C:\\tools\\${command}.exe`,
+    );
+    const manager = new Radare2SessionManager(
+      { REA_R2_COMMAND: "radare2" },
+      { spawnProcess, platform: "win32", resolveExecutable },
+    );
+    const started = await manager.start({ path: "/tmp/f" });
+    expect(started.ok).toBe(true);
+    expect(resolveExecutable).toHaveBeenCalledWith(
+      "radare2",
+      expect.anything(),
+      "win32",
+    );
+    expect(spawnProcess).toHaveBeenCalledWith(
+      expect.objectContaining({ command: "C:\\tools\\radare2.exe" }),
+    );
+    control.exit(0);
+    await manager.closeAll();
+  });
+});
+
+describe("Radare2SessionManager delivery views", () => {
+  it("keeps the session when a reply holds JSON at the Evidence depth limit", async () => {
+    let deep = "1";
+    for (let index = 0; index < 1000; index += 1) deep = `[${deep}]`;
+    const { spawnProcess } = createInjectedProcess({
+      startup: (control) => {
+        control.output("\0");
+      },
+      onWrite: (_text, commandControl) => {
+        queueMicrotask(() =>
+          commandControl.output(
+            `${JSON.stringify({ res: deep, error: false, code: 0 })}\0`,
+          ),
+        );
+      },
+    });
+    const manager = new Radare2SessionManager(
+      {},
+      { spawnProcess, frameTimeoutMs: 5_000 },
+    );
+    const started = await manager.start({ path: "/tmp/f" });
+    if (!started.ok) throw started.error;
+
+    const executed = await manager.execute(started.value.session_id, "ij");
+
+    // The optional projection must degrade here: Evidence validates raw_result
+    // one level deeper, and throwing would cost the caller the whole session.
+    expect(executed.ok).toBe(true);
+    if (executed.ok) expect(executed.value.result.parsed).toBeUndefined();
+    expect(manager.status(started.value.session_id)).toBeDefined();
     await manager.closeAll();
   });
 });

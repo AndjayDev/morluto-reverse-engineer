@@ -104,6 +104,27 @@ describe("projectRadare2DeliveryViews", () => {
     });
   });
 
+  it("degrades to raw output at the Evidence depth limit", async () => {
+    const { projectRadare2DeliveryViews } =
+      await import("../../../src/radare2/radare2CommandOutput.js");
+    const nest = (levels: number): unknown => {
+      let value: unknown = 1;
+      for (let index = 0; index < levels; index += 1) value = [value];
+      return value;
+    };
+    // Evidence validates `raw_result` one level below the projection, so 999
+    // nested levels still fit and 1000 must degrade instead of throwing.
+    expect(
+      Object.hasOwn(
+        projectRadare2DeliveryViews("ij", JSON.stringify(nest(999))),
+        "parsed",
+      ),
+    ).toBe(true);
+    expect(
+      projectRadare2DeliveryViews("ij", JSON.stringify(nest(1000))),
+    ).toEqual({});
+  });
+
   it("keeps views for finite JSON values", async () => {
     const { projectRadare2DeliveryViews } =
       await import("../../../src/radare2/radare2CommandOutput.js");

@@ -20,6 +20,7 @@ import {
   spawnOwnedProviderProcess,
   type SpawnedOwnedProviderProcess,
 } from "../process/ProviderProcess.js";
+import { resolveProviderExecutable } from "../process/resolveWindowsProviderExecutable.js";
 import {
   projectRadare2JsonOutput,
   projectRadare2Summary,
@@ -89,8 +90,10 @@ const isReplyLog = (
  *
  * radare2 reports many command failures with `error:false` and the reason in
  * `logs` (for example decompiler-plugin errors), so `logs` must be preserved
- * instead of trusting the error flag alone. Returns `undefined` when the frame
- * is not a JSON object with a string `res`, which callers treat as a protocol
+ * instead of trusting the error flag alone. A reply that failed before it
+ * produced output (an invalid `@` address, for example) carries the envelope
+ * without `res`, so that field is optional. Returns `undefined` only when the
+ * frame is not a r2pipe2 reply envelope, which callers treat as a protocol
  * failure.
  */
 const parseR2Pipe2Reply = (text: string): R2Pipe2Reply | undefined => {
@@ -102,9 +105,16 @@ const parseR2Pipe2Reply = (text: string): R2Pipe2Reply | undefined => {
   }
   if (typeof parsed !== "object" || parsed === null) return undefined;
   const reply = parsed as Record<string, unknown>;
-  if (typeof reply.res !== "string") return undefined;
+  const hasRes = typeof reply.res === "string";
+  // Every observed reply shape carries `error` and `code`; requiring them keeps
+  // target-produced JSON from impersonating a failed reply and hiding output.
+  const isEnvelope =
+    typeof reply.error === "boolean" &&
+    typeof reply.code === "number" &&
+    (typeof reply.value === "number" || Array.isArray(reply.logs));
+  if (!hasRes && !isEnvelope) return undefined;
   return {
-    res: reply.res,
+    res: typeof reply.res === "string" ? reply.res : "",
     error: reply.error === true,
     code:
       typeof reply.code === "number" && Number.isFinite(reply.code)
@@ -203,6 +213,10 @@ interface Radare2SessionManagerOptions {
   readonly stopProcess?: (session: Radare2Session) => Promise<StopOutcome>;
   /** @internal Test seam for injected provider processes. */
   readonly spawnProcess?: typeof spawnOwnedProviderProcess;
+  /** @internal Test seam; production callers use the host platform. */
+  readonly platform?: NodeJS.Platform;
+  /** @internal Test seam for BYO executable resolution. */
+  readonly resolveExecutable?: typeof resolveProviderExecutable;
 }
 
 /**
@@ -228,7 +242,11 @@ export class Radare2SessionManager {
     options: Radare2SessionManagerOptions = {},
   ) {
     this.#environment = { ...environment };
-    this.#command = environment.REA_R2_COMMAND ?? "radare2";
+    this.#command = (options.resolveExecutable ?? resolveProviderExecutable)(
+      environment.REA_R2_COMMAND ?? "radare2",
+      this.#environment,
+      options.platform ?? process.platform,
+    );
     this.#frameTimeoutMs = options.frameTimeoutMs ?? FRAME_TIMEOUT_MS;
     this.#startupTimeoutMs = options.startupTimeoutMs ?? STARTUP_TIMEOUT_MS;
     this.#spawnProcess = options.spawnProcess ?? spawnOwnedProviderProcess;
@@ -616,7 +634,7 @@ export class Radare2SessionManager {
         ),
       };
       const evidence = this.#commandEvidence(session, command, result, [
-        "Radare2 command output is the `res` field of one r2pipe2 JSON reply; radare2 reports many command failures with error:false and the reason in `logs`, which is preserved in command_logs.",
+        "Radare2 command output is the `res` field of one r2pipe2 JSON reply, empty when the reply failed before producing output; radare2 reports many command failures with error:false and the reason in `logs`, which is preserved in command_logs.",
         ...(outputTruncated
           ? [
               `The Radare2 command exceeded the output or frame limit. Retained output is partial and command completion is unknown.${cleanupFailure === undefined ? " The owned Radare2 session was stopped." : ` The owned Radare2 session remains retained because cleanup could not be verified: ${cleanupFailure}`}`,
@@ -856,11 +874,41 @@ export class Radare2SessionManager {
       );
     const sessions = [...this.#sessions.values()];
     for (const session of sessions) session.closing = true;
-    await Promise.all(
-      sessions.map(async (session) => {
-        await this.#stopAndRetire(session);
-      }),
+    const results = await Promise.allSettled(
+      sessions.map(async (session) => ({
+        session,
+        stopped: await this.#stopAndRetire(session),
+      })),
     );
+    const failures: Error[] = [];
+    for (const settled of results) {
+      if (settled.status === "rejected") {
+        failures.push(
+          settled.reason instanceof Error
+            ? settled.reason
+            : new Error(String(settled.reason)),
+        );
+        continue;
+      }
+      const { session, stopped } = settled.value;
+      // Register the retained failure so a later retry finds this session and
+      // shutdown cannot report success while an owned engine still runs. Reuse
+      // an already-retained failure so repeated shutdown retries do not stack.
+      if (stopped.status === "incomplete")
+        failures.push(
+          [...session.cleanupFailures][0] ??
+            this.#retainCleanupFailure(
+              session,
+              "close_radare2_session",
+              stopped.reason,
+            ),
+        );
+    }
+    if (failures.length > 0)
+      throw new AggregateError(
+        failures,
+        "Owned Radare2 sessions could not be stopped.",
+      );
   }
 
   #commandEvidence(
@@ -1054,7 +1102,14 @@ export class Radare2SessionManager {
     session.closing = true;
     if (session.stopAttempt !== undefined) return session.stopAttempt;
     session.stopAttempt = this.#stopProcess(session).then((result) => {
-      if (result.status === "incomplete") session.stopAttempt = undefined;
+      if (result.status === "incomplete") {
+        session.stopAttempt = undefined;
+        return result;
+      }
+      // A verified stop resolves the cleanup failures this session retained;
+      // callers must not stay blocked on an ownership error that no longer exists.
+      for (const failure of session.cleanupFailures) failure.resolveCleanup();
+      session.cleanupFailures.clear();
       return result;
     });
     return session.stopAttempt;

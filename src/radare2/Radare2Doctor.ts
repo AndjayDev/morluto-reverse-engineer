@@ -2,6 +2,7 @@ import type {
   DoctorProviderCheck,
   DoctorProviderInspection,
 } from "../application/Doctor.js";
+import { resolveProviderExecutable } from "../process/resolveWindowsProviderExecutable.js";
 import {
   execFileOutput,
   execFileOutputFailure,
@@ -33,7 +34,13 @@ export const inspectRadare2Provider = async (
     readonly signal?: AbortSignal;
   } = {},
 ): Promise<DoctorProviderInspection> => {
-  const command = environment.REA_R2_COMMAND ?? "radare2";
+  // Resolve the same way the one-shot and session paths spawn the engine, so
+  // the doctor's availability verdict matches what actually runs.
+  const command = resolveProviderExecutable(
+    environment.REA_R2_COMMAND ?? "radare2",
+    environment,
+    process.platform,
+  );
   const runVersion =
     options.runVersion ??
     (async (selected: string) => {

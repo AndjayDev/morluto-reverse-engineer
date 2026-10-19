@@ -17,14 +17,14 @@ import {
   rizinCommand,
   RIZIN_PROVIDER_IDENTITY,
 } from "../rizin/RizinCommand.js";
-import { resolveWindowsProviderExecutable } from "./resolveWindowsProviderExecutable.js";
+import { resolveProviderExecutable } from "../process/resolveWindowsProviderExecutable.js";
 
 export const createReverseEngineeringCommandPort = (
   environment: Readonly<NodeJS.ProcessEnv>,
   platform: NodeJS.Platform = process.platform,
 ): ReverseEngineeringCommandPort => ({
   objdump: (input) => ({
-    executable: providerExecutable(
+    executable: resolveProviderExecutable(
       environment.REA_OBJDUMP_COMMAND ?? "objdump",
       environment,
       platform,
@@ -34,7 +34,7 @@ export const createReverseEngineeringCommandPort = (
     environmentOverrides: { DEBUGINFOD_URLS: "" },
   }),
   rizin: (input) => ({
-    executable: providerExecutable(
+    executable: resolveProviderExecutable(
       environment.REA_RIZIN_COMMAND ?? "rizin",
       environment,
       platform,
@@ -43,7 +43,7 @@ export const createReverseEngineeringCommandPort = (
     identity: RIZIN_PROVIDER_IDENTITY,
   }),
   radare2: (input) => ({
-    executable: providerExecutable(
+    executable: resolveProviderExecutable(
       environment.REA_R2_COMMAND ?? "radare2",
       environment,
       platform,
@@ -52,7 +52,7 @@ export const createReverseEngineeringCommandPort = (
     identity: RADARE2_PROVIDER_IDENTITY,
   }),
   radiff2: (input) => ({
-    executable: providerExecutable(
+    executable: resolveProviderExecutable(
       environment.REA_RADIFF2_COMMAND ?? "radiff2",
       environment,
       platform,
@@ -61,15 +61,6 @@ export const createReverseEngineeringCommandPort = (
     identity: RADIFF2_PROVIDER_IDENTITY,
   }),
 });
-
-const providerExecutable = (
-  executable: string,
-  environment: Readonly<NodeJS.ProcessEnv>,
-  platform: NodeJS.Platform,
-): string =>
-  platform === "win32"
-    ? resolveWindowsProviderExecutable(executable, environment)
-    : executable;
 
 /** Compose BYO reverse-engineering commands without acquiring tools at import time. */
 export const createReverseEngineeringService = (
