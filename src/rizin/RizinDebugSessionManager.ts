@@ -30,6 +30,7 @@ import {
   type OwnedDebuggerDetachResult,
 } from "../process/ownedDebuggerSession.js";
 import { absoluteCallerPath } from "../filesystem/callerPath.js";
+import { boundedUtf8Text } from "../process/boundedUtf8Text.js";
 
 const MAX_SESSIONS = 8;
 const MAX_PENDING_COMMANDS = 16;
@@ -1066,12 +1067,12 @@ export class RizinDebugSessionManager {
     frame: RizinFrame,
     frameBytes: number,
   ): void {
-    const historyFrame =
-      frameBytes > MAX_RECENT_FRAME_BYTES || frame.truncated
-        ? `${frame.text.slice(0, MAX_RECENT_FRAME_BYTES)}[recent frame truncated]`
-        : frame.text;
-    if (frameBytes > MAX_RECENT_FRAME_BYTES || frame.truncated)
-      session.historyTruncated = true;
+    const recent = boundedUtf8Text(frame.text, MAX_RECENT_FRAME_BYTES);
+    const historyTruncated = recent.truncated || frame.truncated;
+    const historyFrame = historyTruncated
+      ? `${recent.text}[recent frame truncated]`
+      : recent.text;
+    if (historyTruncated) session.historyTruncated = true;
     session.history.push(historyFrame);
     if (session.history.length > 64) {
       session.history.splice(0, session.history.length - 64);

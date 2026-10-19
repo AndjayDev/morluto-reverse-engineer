@@ -85,17 +85,65 @@ it.skipIf(process.platform === "win32")(
   },
 );
 
-it.skipIf(process.platform === "win32")(
-  "preserves unsolicited history and marks oversized recent frames",
-  async () => {
-    const provider = await makeProvider(
-      'process.stdout.write("\\0"); process.stdin.resume(); setTimeout(() => process.stdout.write("x".repeat(17000) + "\\0"), 20);',
+it.skipIf(process.platform === "win32").each([
+  {
+    name: "ASCII",
+    input: Buffer.from("a".repeat(17000)),
+    expected: "a".repeat(16384),
+    truncated: true,
+  },
+  {
+    name: "two-byte code points",
+    input: Buffer.from("é".repeat(8500)),
+    expected: "é".repeat(8192),
+    truncated: true,
+  },
+  {
+    name: "three-byte code points",
+    input: Buffer.from("界".repeat(6000)),
+    expected: "界".repeat(5461),
+    truncated: true,
+  },
+  {
+    name: "four-byte code points",
+    input: Buffer.from("😀".repeat(4500)),
+    expected: "😀".repeat(4096),
+    truncated: true,
+  },
+  {
+    name: "a literal replacement character at the limit",
+    input: Buffer.from("a".repeat(16381) + "\uFFFDx"),
+    expected: "a".repeat(16381) + "\uFFFD",
+    truncated: true,
+  },
+  {
+    name: "an exact byte limit",
+    input: Buffer.from("界".repeat(5461) + "a"),
+    expected: "界".repeat(5461) + "a",
+    truncated: false,
+  },
+  {
+    name: "invalid bytes that expand when decoded",
+    input: Buffer.alloc(6000, 0xff),
+    expected: "\uFFFD".repeat(5461),
+    truncated: true,
+  },
+])(
+  "bounds recent history for $name without losing complete code points",
+  async ({ input, expected, truncated }) => {
+    const injected = createInjectedProcess();
+    const { manager, started } = await startInjected(injected.spawnProcess);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    injected.control.output(input);
+    injected.control.output(Buffer.from([0]));
+    const status = manager.status(started.value.session_id);
+    const marker = "[recent frame truncated]";
+    expect(status?.recent_output_truncated).toBe(truncated);
+    expect(status?.recent_output.at(-1)).toBe(
+      expected + (truncated ? marker : ""),
     );
-    const { manager, sessionId } = await start(provider);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const status = manager.status(sessionId);
-    expect(status?.recent_output_truncated).toBe(true);
-    expect(status?.recent_output.at(-1)).toContain("[recent frame truncated]");
+    expect(Buffer.byteLength(expected, "utf8")).toBeLessThanOrEqual(16 * 1024);
   },
 );
 
