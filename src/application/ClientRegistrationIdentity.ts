@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { aubeShimRunsEntrypoint } from "../process/AubeBinShim.js";
 import { normalizeEntrypointPath } from "../process/CurrentEntrypointPath.js";
 import { valid } from "semver";
 
@@ -138,6 +139,12 @@ const directEntrypointIdentity = (
   candidate: string,
   current: string,
 ): ClientRegistrationCommandIdentity => {
+  // An aube bin shim is a shell script that names the exact script it runs.
+  if (
+    process.platform !== "win32" &&
+    aubeShimRunsEntrypoint(candidate, current)
+  )
+    return "owned";
   const nativeIdentity = entrypointIdentity(candidate, current);
   const scriptPath = normalizeEntrypointPath(candidate);
   if (scriptPath === candidate) return nativeIdentity;
