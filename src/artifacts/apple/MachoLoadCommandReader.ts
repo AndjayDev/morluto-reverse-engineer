@@ -7,6 +7,7 @@ import { machoCpuSubtypeBase } from "../../domain/apple/machoCpuIdentity.js";
 import {
   machoLoadCommandAlignment,
   classifyFatContainerIdentity,
+  machoLoadCommandAlignment,
   readFatContainerHeader,
   readMachoHeaderPrefixFacts,
   validateFatSliceIdentity,
