@@ -363,7 +363,15 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
         return cleaned;
       }
     }
-    // Completion was acknowledged before cleanup. A later abort does not erase it.
+    // Root cleanup is the last awaited finalization step; cancellation observed by
+    // then returns typed cancellation that retains the completed inspection.
+    if (result.ok && options?.signal?.aborted)
+      return err(
+        new AnalysisCancelledError(operation, {
+          cause: options.signal.reason,
+          partialObservation: completedSqliteEvidence(result.value, input),
+        }),
+      );
     return result;
   }
 }
@@ -425,6 +433,20 @@ const cleanupSqliteRoot = async (
   }
 };
 
+/** Completed inspection Evidence retained when a later lifecycle step fails. */
+const completedSqliteEvidence = (
+  execution: AnalysisExecution,
+  input: InspectSqliteDatabaseInput,
+) =>
+  createEvidence(execution.subject ?? undefined, execution.provider, {
+    operation,
+    parameters: sqliteInspectionParameters(input),
+    result: execution.result,
+    confidence: "observed",
+    locations: execution.locations,
+    limitations: execution.limitations,
+  });
+
 const sqliteCleanupFailure = (
   resources: readonly string[],
   reason: string,
@@ -435,14 +457,7 @@ const sqliteCleanupFailure = (
   cause?: unknown,
 ): ProviderCleanupError => {
   const partialObservation = result.ok
-    ? createEvidence(result.value.subject ?? undefined, result.value.provider, {
-        operation,
-        parameters: sqliteInspectionParameters(input),
-        result: result.value.result,
-        confidence: "observed",
-        locations: result.value.locations,
-        limitations: result.value.limitations,
-      })
+    ? completedSqliteEvidence(result.value, input)
     : result.error.partialObservation;
   return new ProviderCleanupError(
     SQLITE_PROVIDER_IDENTITY.id,

@@ -5,7 +5,9 @@ import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { expect, it as nativeTest, onTestFinished } from "vitest";
+import { AnalysisCancelledError } from "../../../src/domain/analysisErrorCore.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
+import { ProviderCleanupError } from "../../../src/domain/providerCleanupError.js";
 import { SqliteDatabaseProvider } from "../../../src/sqlite/SqliteDatabaseProvider.js";
 import { inspectSqliteDatabaseSnapshot } from "../../../src/sqlite/SqliteDatabaseInspection.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
@@ -134,12 +136,13 @@ it.each(["completed reply", "malformed reply"] as const)(
   },
 );
 
-it.each(["late-cancellation", "cleanup-failure"])(
+it.each(["late-cancellation", "cleanup-failure", "cancelled cleanup-failure"])(
   "preserves completed native-worker observations across %s",
   async (scenario) => {
     const { workspace, database } = await createFixture();
     const original = await readFile(database.path);
     const controller = new AbortController();
+    const reason = { cancelled: "during final snapshot-root cleanup" };
     let cleanupAllowed = false;
     let root: PrivateRuntimeRoot | undefined;
     const provider = new SqliteDatabaseProvider(
@@ -157,8 +160,8 @@ it.each(["late-cancellation", "cleanup-failure"])(
         return {
           path: acquired.path,
           close: async () => {
-            if (scenario === "late-cancellation") controller.abort();
-            else if (!cleanupAllowed)
+            if (scenario !== "cleanup-failure") controller.abort(reason);
+            if (scenario !== "late-cancellation" && !cleanupAllowed)
               throw new Error("Completed snapshot cleanup denied");
             await acquired.close();
           },
@@ -173,35 +176,47 @@ it.each(["late-cancellation", "cleanup-failure"])(
       { path: database.path, table: "records", columns: ["id"], row_limit: 1 },
       { signal: controller.signal },
     );
+    const completed = {
+      operation: "inspect_sqlite_database",
+      confidence: "observed",
+      subject: {
+        local_path: database.path,
+        digest: { sha256: digestForTest(original) },
+      },
+      parameters: {
+        path: database.path,
+        table: "records",
+        columns: ["id"],
+        row_limit: 1,
+      },
+      normalized_result: {
+        rows: {
+          columns: ["id"],
+          returned_rows: 1,
+          values: [[{ type: "integer", value: expect.any(String) }]],
+        },
+      },
+    };
+    if (root === undefined) throw new Error("Missing acquired root");
+    const error = result.ok ? undefined : result.error;
     if (scenario === "late-cancellation") {
-      expect(controller.signal.aborted).toBe(true);
-      expect(result).toMatchObject({
-        ok: true,
-        value: { result: { rows: { columns: ["id"], returned_rows: 1 } } },
-      });
-    } else {
       expect(result).toMatchObject({
         ok: false,
-        error: {
-          cleanupIncomplete: true,
-          partialObservation: {
-            operation: "inspect_sqlite_database",
-            confidence: "observed",
-            subject: {
-              local_path: database.path,
-              digest: { sha256: digestForTest(original) },
-            },
-            parameters: {
-              path: database.path,
-              table: "records",
-              columns: ["id"],
-              row_limit: 1,
-            },
-            normalized_result: { rows: { columns: ["id"], returned_rows: 1 } },
-          },
-        },
+        error: { cleanupIncomplete: false, partialObservation: completed },
       });
-      if (root === undefined) throw new Error("Missing retained root");
+      expect(error).toBeInstanceOf(AnalysisCancelledError);
+      expect(error?.cause).toBe(reason);
+      await expectPrivateRootRemoved(root.path);
+    } else {
+      // Incomplete cleanup stays primary over a cancellation observed during it.
+      expect(controller.signal.aborted).toBe(
+        scenario === "cancelled cleanup-failure",
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: { cleanupIncomplete: true, partialObservation: completed },
+      });
+      expect(error).toBeInstanceOf(ProviderCleanupError);
       await expect(access(root.path)).resolves.toBeUndefined();
       cleanupAllowed = true;
       await provider.close();
