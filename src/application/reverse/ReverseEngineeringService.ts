@@ -586,12 +586,16 @@ export class ReverseEngineeringService {
           ]),
       "A non-zero process exit is preserved as an observed command result.",
       ...(operation === "inspect_with_objdump" &&
-      typeof parameters.symbol === "string"
-        ? [
-            "Disassembly is scoped to the caller-selected symbol using the provider's matching and symbol-boundary semantics; an empty match does not establish artifact-wide absence.",
-          ]
-        : []),
-      ...(operation === "inspect_with_objdump" &&
+// <<<<<<< fix/objdump-dwarf-debug-link-warning
+//       parameters.operation === "dwarf" &&
+// =======
+//       typeof parameters.symbol === "string"
+//         ? [
+//             "Disassembly is scoped to the caller-selected symbol using the provider's matching and symbol-boundary semantics; an empty match does not establish artifact-wide absence.",
+//           ]
+//         : []),
+//       ...(operation === "inspect_with_objdump" &&
+// >>>>>>> main
       parameters.follow_debug_links === true
         ? [
             "DWARF output may include local debug-link files whose identities are not bound to Evidence.",

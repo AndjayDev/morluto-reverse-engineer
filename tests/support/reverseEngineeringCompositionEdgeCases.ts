@@ -71,6 +71,53 @@ const registerSharedReverseEngineeringEdgeCasesPart1 = (): void => {
     }
   });
 
+  it.each([
+    "file_headers",
+    "section_headers",
+    "symbols",
+    "relocations",
+    "disassemble",
+    "disassemble_all",
+  ] as const)(
+    "does not report DWARF debug-link limitations for %s",
+    async (operation) => {
+      const { directory, path } = await createArtifact();
+      const calls: string[][] = [];
+      const service = new ReverseEngineeringService({
+        run: async (_command, args) => {
+          calls.push([...args]);
+          return { stdout: "", stderr: "" };
+        },
+      });
+
+      try {
+        const optedIn = await service.inspectWithObjdump({
+          path,
+          operation,
+          follow_debug_links: true,
+        });
+        const defaulted = await service.inspectWithObjdump({
+          path,
+          operation,
+        });
+
+        expect(optedIn.ok).toBe(true);
+        expect(defaulted.ok).toBe(true);
+        if (optedIn.ok && defaulted.ok) {
+          expect(calls[0]).toEqual(calls[1]);
+          expect(optedIn.value.raw_result).toEqual(defaulted.value.raw_result);
+          expect(
+            optedIn.value.limitations.some((limitation) =>
+              limitation.startsWith("DWARF output"),
+            ),
+          ).toBe(false);
+        }
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("rejects malformed objdump requests before touching the provider", async () => {
     let invoked = false;
     const service = new ReverseEngineeringService({
