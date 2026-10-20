@@ -200,7 +200,13 @@ const writeBundle = (
   signal?: AbortSignal,
 ) =>
   withArtifactResourceScope((resources) =>
-    writeEvidenceBundle(value, path, overwrite, resources, signal),
+    writeEvidenceBundle(
+      value,
+      path,
+      overwrite ? "replace" : "refuse",
+      resources,
+      signal,
+    ),
   );
 
 const writeParts = (
@@ -213,7 +219,13 @@ const writeParts = (
   },
 ) =>
   withArtifactResourceScope((resources) =>
-    writeTextParts(parts, path, overwrite, resources, cancellation),
+    writeTextParts(
+      parts,
+      path,
+      overwrite ? "replace" : "refuse",
+      resources,
+      cancellation,
+    ),
   );
 
 describe("evidence bundle publication", () => {
