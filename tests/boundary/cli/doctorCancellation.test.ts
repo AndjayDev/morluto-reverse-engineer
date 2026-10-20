@@ -97,7 +97,9 @@ setTimeout(() => process.exit(99), 20000);
       const observed = z
         .strictObject({
           pid: z.number().int().positive(),
-          runId: z.string().uuid().optional(),
+          // A provider run token is an opaque identifier, not a bare UUID: the
+          // Kuna version probe owns one under a prefixed name.
+          runId: z.string().min(1).optional(),
         })
         .parse(JSON.parse(await readFile(ready, "utf8")));
       if (provider === "jadx") {

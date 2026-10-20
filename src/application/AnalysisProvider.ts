@@ -142,6 +142,7 @@ export const createAnalysisExecutionEvidence = (
   input: unknown,
   execution: AnalysisExecution,
   confidence: "observed" | "derived",
+  authority?: Evidence["authority"],
 ): Evidence =>
   createEvidence(execution.subject ?? undefined, execution.provider, {
     operation,
@@ -157,6 +158,7 @@ export const createAnalysisExecutionEvidence = (
       : { relationshipCoverage: execution.relationshipCoverage }),
     locations: execution.locations,
     confidence,
+    ...(authority === undefined ? {} : { authority }),
   });
 
 /** Provider-neutral application capability for one analysis operation. */

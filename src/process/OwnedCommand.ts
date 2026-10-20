@@ -161,6 +161,8 @@ export const runOwnedCommand = async (
   limits: OwnedCommandLimits & { readonly timeoutMs: number },
   options: {
     readonly signal?: AbortSignal | undefined;
+    /** Bounded caller-owned bytes/text delivered through piped stdin, never argv or diagnostics. */
+    readonly input?: string | Uint8Array;
     /** Synchronously accept unresolved cleanup ownership; execution still returns its original outcome. Must not throw. */
     readonly retainCleanup?: (
       owner: ProviderProcessSupervisor,
@@ -172,6 +174,8 @@ export const runOwnedCommand = async (
   } = {},
 ): Promise<ProviderProcessSnapshot> => {
   const callerSignal = options.signal ?? spawn.signal;
+  if (options.input !== undefined && spawn.stdin !== "pipe")
+    throw new TypeError("Owned command input requires piped stdin");
   if (callerSignal?.aborted)
     throw new OwnedCommandFailure(
       "cancelled",
@@ -189,6 +193,7 @@ export const runOwnedCommand = async (
       deadline,
       callerSignal,
       options.retainCleanup,
+      options.input,
     );
   } finally {
     deadline.dispose();
@@ -207,6 +212,7 @@ const collectOwnedCommand = async (
     owner: ProviderProcessSupervisor,
     result: Extract<ProviderProcessStopResult, { status: "incomplete" }>,
   ) => void,
+  input?: string | Uint8Array,
 ): Promise<ProviderProcessSnapshot> => {
   const signal = deadline.signal;
   let launched: SpawnedOwnedProviderProcess;
@@ -293,6 +299,9 @@ const collectOwnedCommand = async (
       };
   });
   let failure: OwnedCommandFailure | undefined;
+  let inputPending = false;
+  let inputFailure: Error | undefined;
+  let inputFailureBeforeInterruption: Error | undefined;
   const throwInterruptionOrObservedFailure = (
     interruption: "cancelled" | "timeout" | undefined,
     snapshot: ProviderProcessSnapshot | null = null,
@@ -315,6 +324,16 @@ const collectOwnedCommand = async (
           collectionFailure: processFailureBeforeInterruption.collectionFailure,
         },
       );
+    // A stdin write that failed before the interruption is the command's own
+    // outcome and must not be replaced by the interruption.
+    if (inputFailureBeforeInterruption !== undefined)
+      throw new OwnedCommandFailure(
+        "process",
+        "Command stdin write failed.",
+        snapshot,
+        null,
+        { cause: inputFailureBeforeInterruption, collectionFailure: true },
+      );
     throw new OwnedCommandFailure(
       interruption,
       interruption === "cancelled"
@@ -328,7 +347,31 @@ const collectOwnedCommand = async (
     );
   };
   try {
-    while (!(await supervisor.waitForOutputClose(10))) {
+    if (input !== undefined) {
+      const stream = launched.process.stdin;
+      if (stream === null || stream === undefined)
+        throw new Error("Owned process did not supply piped stdin");
+      // A launch that used up the host deadline must not deliver the body: the
+      // target would start its own deadline and act after the caller gave up.
+      throwInterruptionOrObservedFailure(deadline.interruption);
+      inputPending = true;
+      const failed = (cause: Error) => {
+        inputFailure = cause;
+        inputPending = false;
+        if (deadline.interruption === undefined)
+          inputFailureBeforeInterruption = cause;
+      };
+      stream.on("error", failed);
+      stream.once("close", () => {
+        stream.off("error", failed);
+        if (inputPending)
+          failed(new Error("Command stdin closed before write completion"));
+      });
+      stream.end(input, () => {
+        inputPending = false;
+      });
+    }
+    while (inputPending || !(await supervisor.waitForOutputClose(10))) {
       throwInterruptionOrObservedFailure(deadline.interruption);
       if (exceeded)
         throw new OwnedCommandFailure(
@@ -340,6 +383,14 @@ const collectOwnedCommand = async (
           processError,
           collectionFailure: true,
         });
+      if (inputFailure !== undefined)
+        throw new OwnedCommandFailure(
+          "process",
+          "Command stdin write failed.",
+          null,
+          null,
+          { cause: inputFailure, collectionFailure: true },
+        );
       await waitForAbortableDelay(25, signal);
     }
     // Output has closed, but the sink may still be parsing what it buffered.
@@ -352,6 +403,14 @@ const collectOwnedCommand = async (
         "output-limit",
         "Command diagnostic output exceeded its complete-output budget.",
         snapshot,
+      );
+    if (inputFailure !== undefined)
+      throw new OwnedCommandFailure(
+        "process",
+        "Command stdin write failed.",
+        snapshot,
+        null,
+        { cause: inputFailure, collectionFailure: true },
       );
     const acceptedNonzeroExit =
       limits.acceptNonZeroExit === true &&
