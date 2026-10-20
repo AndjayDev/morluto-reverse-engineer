@@ -236,9 +236,9 @@ cliTest(
   },
 );
 
-cliTest(
-  "preserves early-return predicates on recovered bridge paths through CLI and stdio MCP",
-  async ({ cli }) => {
+cliTest.for(["CLI", "stdio MCP"] as const)(
+  "preserves early-return predicates on recovered bridge paths through %s",
+  async (surface, { cli }) => {
     const cases = [
       {
         name: "conditional early return",
@@ -266,54 +266,48 @@ cliTest(
       },
     ] as const;
 
-    for (const surface of ["CLI", "stdio MCP"] as const) {
-      const connection =
-        surface === "stdio MCP" ? await connectLocalToolsMcp() : undefined;
-      const artifacts = new Set<string>();
-      for (const fixture of cases) {
-        const root = await createTestTempDirectory(
-          "rea-electron-early-return-",
-        );
-        await writeFixtureFiles(root, {
-          "index.js": `const e=require("electron");function f(x){${fixture.body}}f(globalThis.blocked);`,
-        });
-        const application = await analyzeJavaScriptDirectory(
-          surface,
-          cli,
-          root,
-          connection?.call,
-        );
-        expect(application.input_path).toBe(root);
-        expect(artifacts.has(application.root_artifact_sha256)).toBe(false);
-        artifacts.add(application.root_artifact_sha256);
-        const observations = application.graph.nodes.flatMap(
-          (node) => node.observations,
-        );
-        const terminal = observations.find(
-          (observation) =>
-            observation.properties.entry === "api.copy" &&
-            observation.properties.step_kind === "terminal",
-        );
-        if (fixture.name === "definite early return") {
-          expect(terminal).toBeUndefined();
-          continue;
-        }
-        const terminalEvidence =
-          callPathTerminalObservationSchema.parse(terminal);
-        expect(
-          terminalEvidence.properties.conditions.map(
-            ({ expression }) => expression,
-          ),
-        ).toEqual(fixture.conditions);
-        expect(terminalEvidence.evidence.coverage.status).toBe(
-          fixture.coverage,
-        );
-        expect(application.graph.coverage.status).toBe(fixture.coverage);
-        const source = observations.find(
-          (observation) => observation.properties.file_kind === "javascript",
-        );
-        expect(source?.properties.parse_status).toBe(fixture.coverage);
+    const connection =
+      surface === "stdio MCP" ? await connectLocalToolsMcp() : undefined;
+    const artifacts = new Set<string>();
+    for (const fixture of cases) {
+      const root = await createTestTempDirectory("rea-electron-early-return-");
+      await writeFixtureFiles(root, {
+        "index.js": `const e=require("electron");function f(x){${fixture.body}}f(globalThis.blocked);`,
+      });
+      const application = await analyzeJavaScriptDirectory(
+        surface,
+        cli,
+        root,
+        connection?.call,
+      );
+      expect(application.input_path).toBe(root);
+      expect(artifacts.has(application.root_artifact_sha256)).toBe(false);
+      artifacts.add(application.root_artifact_sha256);
+      const observations = application.graph.nodes.flatMap(
+        (node) => node.observations,
+      );
+      const terminal = observations.find(
+        (observation) =>
+          observation.properties.entry === "api.copy" &&
+          observation.properties.step_kind === "terminal",
+      );
+      if (fixture.name === "definite early return") {
+        expect(terminal).toBeUndefined();
+        continue;
       }
+      const terminalEvidence =
+        callPathTerminalObservationSchema.parse(terminal);
+      expect(
+        terminalEvidence.properties.conditions.map(
+          ({ expression }) => expression,
+        ),
+      ).toEqual(fixture.conditions);
+      expect(terminalEvidence.evidence.coverage.status).toBe(fixture.coverage);
+      expect(application.graph.coverage.status).toBe(fixture.coverage);
+      const source = observations.find(
+        (observation) => observation.properties.file_kind === "javascript",
+      );
+      expect(source?.properties.parse_status).toBe(fixture.coverage);
     }
   },
 );
