@@ -82,6 +82,7 @@ describe("compiled Apple asset catalog projection", () => {
     expect(second.records[0]?.catalog_path).toBe("Resources/B/Assets.car");
     expect(second.next_offset).toBeNull();
     expect(second.total_records).toBe(3);
+    expect(second.truncated).toBe(true);
   });
 
   it("rejects malformed pages and invalid utility data", () => {
@@ -103,4 +104,36 @@ describe("compiled Apple asset catalog projection", () => {
       }),
     );
   });
+
+  it.each([
+    { label: "no compiled catalogs", catalogs: [] },
+    {
+      label: "catalogs present but containing no records",
+      catalogs: [
+        {
+          path: "Resources/Empty/Assets.car",
+          sha256: "e".repeat(64),
+          records: parseAppleAssetCatalogRecords([]),
+        },
+      ],
+    },
+  ])(
+    "does not mark an empty inventory as truncated at offset 0, 1, or 5 ($label)",
+    ({ catalogs }) => {
+      for (const offset of [0, 1, 5]) {
+        const page = projectAppleAssetCatalogPage({
+          targetSha256: "c".repeat(64),
+          catalogs,
+          offset,
+          limit: 10,
+        });
+
+        expect(page.offset).toBe(offset);
+        expect(page.total_records).toBe(0);
+        expect(page.records).toEqual([]);
+        expect(page.next_offset).toBeNull();
+        expect(page.truncated).toBe(false);
+      }
+    },
+  );
 });
