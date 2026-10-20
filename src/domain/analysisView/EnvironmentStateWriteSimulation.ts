@@ -178,7 +178,7 @@ export class EnvironmentStateWriteSimulation {
       unknown: (type, collection, id) =>
         this.#taint.unknown(type, collection, id),
       initialDocument: (tool) =>
-        this.#input.documents.find((document) => document.tool === tool)?.value,
+        this.#input.documents.find((document) => document.tool === tool),
     };
   }
 

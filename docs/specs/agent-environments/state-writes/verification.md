@@ -213,3 +213,13 @@ names; both new tests fail on the previous head. A fourth round chose a read's
 line as replay does, so a read spelled plainly is checked against the encoded
 line that answers it, and its list against that line's collection; its test
 fails on the previous head.
+
+A review of the fidelity branch built on this one found four more places: a
+document write at another path is now unmodelled in the gate, a create picks
+the collection the call spells verbatim, a missing entity is answered with a
+recorded 2xx `null` the gate accepted as an absence, and `data/add` refuses a
+document whose `data/get` form would exceed the intake limit. Each new test
+fails on the previous head. The gates passed again (domain and services 7475
+with 5 pre-existing skips, boundaries 75, conformance, `jscpd` 3.46%), the
+verdicts over the 50 captures were unchanged plan by plan, and the smoke
+applied all 33 served write tools.

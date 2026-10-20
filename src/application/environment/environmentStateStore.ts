@@ -3,8 +3,8 @@ import type {
   StateType,
 } from "../../domain/analysisView/environmentStateRules.js";
 import {
+  AnalysisInputError,
   AnalysisResourceConstraintError,
-  type AnalysisInputError,
 } from "../../domain/analysisErrorCore.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import { err, ok, type Result } from "../../domain/result.js";
@@ -83,7 +83,26 @@ export class EnvironmentStateStore {
   replace(document: unknown): Result<void, AnalysisInputError> {
     const content = parseStateDocument(this.state, document);
     if (!content.ok) return content;
-    this.#install(content.value, this.#contentBytes(content.value));
+    // data/get writes members a document may omit, so the state it reports must still be one data/add loads.
+    const bytes = this.#contentBytes(content.value);
+    if (bytes > STATE_INTAKE_LIMIT_BYTES)
+      return err(
+        new AnalysisInputError(
+          ENVIRONMENT_SERVE_OPERATION,
+          {
+            userMessage: `The state would exceed ${String(STATE_INTAKE_LIMIT_BYTES)} bytes as data/get writes it.`,
+          },
+          [
+            {
+              path: [],
+              reason: "out_of_range",
+              message: `would exceed ${String(STATE_INTAKE_LIMIT_BYTES)} bytes as data/get writes it`,
+              maximum: STATE_INTAKE_LIMIT_BYTES,
+            },
+          ],
+        ),
+      );
+    this.#install(content.value, bytes);
     this.#restart();
     return ok(undefined);
   }

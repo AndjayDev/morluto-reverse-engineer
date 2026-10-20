@@ -241,9 +241,18 @@ const createdCollection = (
 ): string | undefined => {
   const segments = callSegments(request.tool, request.args);
   if (segments === undefined) return undefined;
-  const held = serving.store
-    .collectionsOf(request.plan.target ?? "")
-    .find((collection) => collectionMatch(collection, segments) !== undefined);
+  // The spelling the call supplies verbatim wins, as item calls choose their entity.
+  let held: string | undefined;
+  let verbatim = -1;
+  for (const collection of serving.store.collectionsOf(
+    request.plan.target ?? "",
+  )) {
+    const matched = collectionMatch(collection, segments);
+    if (matched !== undefined && matched > verbatim) {
+      held = collection;
+      verbatim = matched;
+    }
+  }
   return (
     held ??
     `/${segments.map(({ text, supplied }) => (supplied ? encodeURIComponent(text) : text)).join("/")}`

@@ -408,3 +408,68 @@ describe("path values", () => {
     }
   });
 });
+
+describe("collections a create chooses", () => {
+  const orgBook = (id: number, name: string): Book => ({ id, name });
+  /** One organisation listed under two spellings and another organisation, each with a create. */
+  const ROWS: readonly TimedCaptureRow[] = [
+    ["GET", "/api/orgs/%61cme1/books", [orgBook(1, "Alpha")]],
+    ["GET", "/api/orgs/acme1/books", [orgBook(2, "Beta")]],
+    ["GET", "/api/orgs/beta2/books", [orgBook(3, "Gamma")]],
+    [
+      "POST",
+      "/api/orgs/acme1/books",
+      orgBook(4, "Delta"),
+      201,
+      { name: "Delta" },
+    ],
+    ["GET", "/api/orgs/acme1/books", [orgBook(2, "Beta"), orgBook(4, "Delta")]],
+    [
+      "POST",
+      "/api/orgs/beta2/books",
+      orgBook(5, "Epsilon"),
+      201,
+      { name: "Epsilon" },
+    ],
+    [
+      "GET",
+      "/api/orgs/beta2/books",
+      [orgBook(3, "Gamma"), orgBook(5, "Epsilon")],
+    ],
+  ];
+
+  it("creates in the collection the call spells verbatim, as item calls choose their entity", () => {
+    const books = servedFrom(ROWS);
+    const tool = books.source.manifest.tools.find(
+      (candidate) => candidate.method === "POST",
+    )!;
+    expect(books.state.writes.get(tool.name)).toMatchObject({ served: true });
+    const [org] = environmentToolArguments(tool).path.values();
+    books.answer(tool.name, { [org!]: "acme1", body: { name: "Zeta" } });
+    expect(
+      books.store
+        .snapshot()
+        .rea_state.entities.find((entity) => entity.fields["name"] === "Zeta")
+        ?.collection,
+    ).toBe("/api/orgs/acme1/books");
+  });
+});
+
+describe("missing entities after a delete", () => {
+  it("answers with a recorded 2xx null, which the gate also took as an absence", () => {
+    const books = servedFrom([
+      ...BOOK_INIT_ROWS,
+      ["DELETE", "/api/books/2", "", 204],
+      ["GET", "/api/books/2", null],
+    ]);
+    expect(books.state.writes.get("delete_books_by_id")).toMatchObject({
+      served: true,
+    });
+    books.answer("delete_books_by_id", { id: "1" });
+    expect(books.answer("get_books_by_id", { id: "1" })).toMatchObject({
+      status: 200,
+      body: null,
+      state: { view: "missing", id: "1" },
+    });
+  });
+});

@@ -120,9 +120,10 @@ response, with the entity re-rendered when the response carries it.
 **Documents.** A document write merges the body's members (replaces them, for
 `PUT`) into the document object that holds most of them: the root or one
 member. Document reads answer only on their recorded line, so a write is
-served only at the path the state holds the document at. A recorded write
-whose body serving would refuse (a member of another JSON type than the
-document holds) is `unexplained-change`.
+served only at the path the state holds the document at, and the gate treats a
+recorded write at another path as an unmodelled write. A recorded write whose
+body serving would refuse (a member of another JSON type than the document
+holds) is `unexplained-change`.
 
 **Responses.** A write answers with the status and content type of one
 recorded response:
@@ -257,6 +258,12 @@ When the tool, or else an item view of the type, recorded a 400, 404 or 410
 response, an update or delete of a missing entity answers with the latest such
 recording instead.
 
+A create in a collection held under more than one spelling (`acme1` and
+`%61cme1`) goes to the one the call spells verbatim, as item calls choose their
+entity. `data/add` refuses a document that `data/get` would write back past the
+32 MiB intake limit once it adds the members a document may omit, such as
+`types` and the state Evidence id.
+
 **Clock and generators.** The store's clock starts at `write_clock` and
 advances one second before each served write; clock fields take its value in
 their recorded format.
@@ -271,8 +278,9 @@ their recorded format.
 sequences.
 
 **Missing entities.** An item read of an entity the state does not hold
-answers with the tool's latest recorded 400, 404 or 410 response when it has
-one, labelled `state.view: "missing"`. Otherwise it stays a tool error.
+answers with the tool's latest recorded 400, 404 or 410 response, or 2xx JSON
+`null` response, the absences the gate accepts, when it has one, labelled
+`state.view: "missing"`. Otherwise it stays a tool error.
 
 **Lists of a whole collection.** Written entities matter only if lists show
 them, so the read gate's `membership: "all"` also covers a line that only pages

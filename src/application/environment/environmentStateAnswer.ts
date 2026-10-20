@@ -264,12 +264,18 @@ export const missingAnswer = (
     readonly id: string;
   },
 ): Result<StateAnswer, AnalysisError> => {
+  // The write gate takes a 2xx JSON null as an absence too, so a delete it confirmed that way can be answered.
   const latestAbsence = (ordinals: readonly number[]) =>
     ordinals
       .map((ordinal) => serving.source.exchanges.get(ordinal))
       .filter(
         (exchange): exchange is RecordedExchange =>
-          exchange !== undefined && isAbsence(exchange.status),
+          exchange !== undefined &&
+          (isAbsence(exchange.status) ||
+            (exchange.status !== null &&
+              exchange.status >= 200 &&
+              exchange.status < 300 &&
+              recordedJson(exchange) === null)),
       )
       .at(-1);
   // The tool's own recorded absence first, else that of an item view of the type.

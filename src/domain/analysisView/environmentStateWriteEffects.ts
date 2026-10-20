@@ -1,13 +1,16 @@
 import type { JsonValue } from "../jsonValue.js";
 import {
   collectionPathOf,
+  decodedSegment,
   isObject,
   isStateWrite,
   lastSegmentValue,
   locateItem,
   at,
   same,
+  segmentsOf,
   type JsonObject,
+  type StateDocument,
   type StateRecordFacts,
   type StateToolFacts,
   type StateView,
@@ -85,8 +88,8 @@ export interface EffectContext {
   readonly observed: (ordinal: number) => void;
   /** Whether an unmodelled write may have changed the entity since the state last saw it. */
   readonly unknown: (type: string, collection: string, id: string) => boolean;
-  /** A document's value in the initial state, which serving also reads member types from. */
-  readonly initialDocument: (tool: string) => JsonValue | undefined;
+  /** A document as the initial state holds it: its path, and the value serving also reads member types from. */
+  readonly initialDocument: (tool: string) => StateDocument | undefined;
 }
 
 /** One recorded write: the record, its timeline index, its tool, and whether its plan only takes the recorded outcome. */
@@ -443,6 +446,20 @@ export const applyDelete = (
   };
 };
 
+/** Whether a write's path names the held document's, a segment verbatim or once percent-decoded, as serving matches a call. */
+const namesDocument = (path: string, held: string): boolean => {
+  const written = segmentsOf(path);
+  const recorded = segmentsOf(held);
+  return (
+    written.length === recorded.length &&
+    recorded.every(
+      (segment, index) =>
+        segment === written[index] ||
+        decodedSegment(segment) === written[index],
+    )
+  );
+};
+
 /** Apply a recorded document write: the body merged into, or replacing, the object holding most of its members. */
 export const applyDocument = (
   context: EffectContext,
@@ -450,6 +467,10 @@ export const applyDocument = (
   step: WriteStep,
 ): EffectResult => {
   const tool = draft.plan.target!;
+  const initial = context.initialDocument(tool);
+  // Serving refuses a write at another path, so one here changes no document the state holds.
+  if (initial !== undefined && !namesDocument(step.record.path, initial.path))
+    return UNKNOWN;
   const value = context.state.document(tool);
   const body = requestObject(context, step.record);
   const pointer =
@@ -482,7 +503,7 @@ export const applyDocument = (
   // Serving refuses a body its check refuses, so such a call cannot confirm the plan.
   if (
     documentBodyProblem(draft.plan, call, {
-      initial: context.initialDocument(tool),
+      initial: initial?.value,
       current: value,
     }) !== undefined
   ) {

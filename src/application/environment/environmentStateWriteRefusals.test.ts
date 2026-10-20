@@ -95,6 +95,17 @@ describe("served document writes", () => {
     });
   });
 
+  it("does not confirm a document write at another path, which serving refuses", () => {
+    const settings = servedFrom([
+      ["GET", "/api/orgs/1/settings", DARK],
+      ["PATCH", "/api/orgs/2/settings", LIGHT, 200, LIGHT],
+      ["GET", "/api/orgs/1/settings", LIGHT],
+    ]);
+    expect(settings.state.writes.get(PATCH_SETTINGS)).toMatchObject({
+      served: false,
+    });
+  });
+
   it("changes the document only at the path the state holds it", () => {
     const settings = servedFrom(SETTINGS_ROWS);
     expectRefusedUnchanged(settings, [
@@ -218,5 +229,41 @@ describe("the state size limit", () => {
     // A smaller state has room again.
     books.answer("delete_books_by_id", { id: "3" });
     expect(books.answer("post_books", create).status).toBe(201);
+  });
+
+  it("refuses a document that data/get would write past what data/add loads", () => {
+    const books = servedFrom();
+    const { rea_state: state } = books.store.snapshot();
+    // Without the members data/get adds back, the document fits only until they return.
+    const document = {
+      rea_state: {
+        version: state.version,
+        entities: state.entities.map(({ type, collection, id, fields }) => ({
+          type,
+          collection,
+          id,
+          fields: { ...fields },
+        })),
+        documents: state.documents,
+      },
+    };
+    const first = document.rea_state.entities[0]!.fields;
+    first["name"] = `${String(first["name"])}${"a".repeat(
+      STATE_INTAKE_LIMIT_BYTES -
+        Buffer.byteLength(JSON.stringify(document), "utf8"),
+    )}`;
+    expect(Buffer.byteLength(JSON.stringify(document), "utf8")).toBe(
+      STATE_INTAKE_LIMIT_BYTES,
+    );
+    const before = books.snapshot();
+    const replaced = books.store.replace(document);
+    expect(replaced.ok).toBe(false);
+    expect(!replaced.ok && replaced.error.issues).toEqual([
+      expect.objectContaining({
+        reason: "out_of_range",
+        maximum: STATE_INTAKE_LIMIT_BYTES,
+      }),
+    ]);
+    expect(books.snapshot()).toBe(before);
   });
 });
