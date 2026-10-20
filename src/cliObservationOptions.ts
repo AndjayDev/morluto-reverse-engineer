@@ -73,7 +73,7 @@ export const javascriptApplicationOptions = z.object({
   sourcePath: javaScriptSourcePathsSchema
     .optional()
     .describe(
-      "Exact inventoried file path relative to the application root; repeat to select several. No implicit dependencies.",
+      "Inventoried source selector relative to the application root: an exact file path, a folder, or a glob; repeat to select several. No implicit dependencies.",
     ),
   maxHeapMb: javaScriptAnalysisResourceControlsSchema.shape.max_heap_mb,
   analysisTimeoutMs:

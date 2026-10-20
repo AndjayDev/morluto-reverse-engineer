@@ -1,16 +1,28 @@
 import { z } from "zod";
 
-/** Exact inventoried paths selected for text acquisition and static analysis. */
+/**
+ * Source selectors resolved against the complete artifact inventory: exact
+ * paths, folder prefixes, or globs.
+ */
 export const javaScriptSourcePathsSchema = z
   .array(z.string().min(1))
   .min(1)
   .describe(
-    "Exact relevant file paths from the artifact inventory, relative to the application root, analyzed in first-request order before unselected scopes; no globs or implicit dependencies. Omit to analyze all sources.",
+    "Source selectors from the artifact inventory, relative to the application root, analyzed in first-request order before unselected scopes: an exact inventoried file path, a folder selecting every inventoried file under it, or a glob where '*' matches within one path segment, '**' spans zero or more whole segments and '?' matches one character. Matching is case-sensitive; path aliases and implicit dependencies are not resolved. Omit to analyze all sources.",
+  );
+
+/** Exact inventoried paths resolved from folder and glob selectors. */
+const javaScriptSelectedPathsSchema = z
+  .array(z.string().min(1))
+  .min(1)
+  .describe(
+    "Exact inventoried file paths resolved from folder and glob selectors, in first-request order without duplicates; present only when a folder or glob resolved sources.",
   );
 
 /** Caller scope retained independently of analysis success or completeness. */
 export const javaScriptSourceSelectionSchema = z.strictObject({
   requested_paths: javaScriptSourcePathsSchema,
+  selected_paths: javaScriptSelectedPathsSchema.exactOptional(),
   unselected_files: z.number().int().min(0),
 });
 

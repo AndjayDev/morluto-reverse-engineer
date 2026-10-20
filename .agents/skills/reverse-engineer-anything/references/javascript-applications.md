@@ -10,16 +10,19 @@ caller-supplied Wakaru on Linux x64; see [the recovery guide](https://github.com
 
 Use `analyze_javascript_application` directly on the operator-supplied ASAR or
 extracted tree. When the question concerns known source paths and the connected
-schema advertises `source_paths`, select exact inventoried paths such as
-`["package.json", "main.js", "preload.js"]`. Include supporting manifests or
-source maps explicitly; dependencies are not implicitly analyzed. REA retains
-the complete artifact inventory and identity but reads source text and analyzes
-only selected files. The result and summary record `source_selection`; files
-outside scope and their relationships remain unknown, so partial application
-coverage does not mean the selected source failed. Use repeated `--source-path`
-on either static application CLI route. Omit the selection when the question
-requires complete application analysis. `detail: "summary"` reduces delivery
-and does not by itself reduce analysis work.
+schema advertises `source_paths`, select inventoried sources: exact paths such
+as `["package.json", "main.js", "preload.js"]`, a folder such as `out/main`, or
+an inventory glob such as `["out/main/**", "out/preload/**"]`. Include
+supporting manifests or source maps explicitly; dependencies are not implicitly
+analyzed. REA retains the complete artifact inventory and identity but reads
+source text and analyzes only resolved files. The result and summary record
+`source_selection`, including the resolved `selected_paths` when a folder or
+glob was used; files outside scope and their relationships remain unknown, so
+partial application coverage does not mean the selected source failed. Use
+repeated `--source-path` on either static application CLI route. Omit the
+selection when the question requires complete application analysis.
+`detail: "summary"` reduces delivery and does not by itself reduce analysis
+work.
 
 Exact `#alias` specifiers resolve through the importer's
 enclosing package `imports` map to package-local files; nested `node_modules`

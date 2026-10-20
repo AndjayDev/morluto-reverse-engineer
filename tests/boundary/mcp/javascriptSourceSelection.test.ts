@@ -110,7 +110,7 @@ it("retains missing ASAR native-addon inventory through the public application t
   }
 }, 60_000);
 
-it("advertises exact source selection and retains its scope through summary, Evidence retrieval and invalid-input recovery", async () => {
+it("advertises source selection and retains its scope through summary, Evidence retrieval and invalid-input recovery", async () => {
   const root = await createTestTempDirectory("rea-js-selected-mcp-");
   await writeJavaScriptSourceSelectionFixture(root);
   const { client, transport } = createSelectionClient();
@@ -200,7 +200,7 @@ it("advertises exact source selection and retains its scope through summary, Evi
       ["missing.mjs"],
       ["./main.mjs"],
       ["../main.mjs"],
-      ["*.mjs"],
+      ["missing/**"],
     ]) {
       const invalid = await client.callTool({
         name: "analyze_javascript_application",
@@ -231,6 +231,36 @@ it("advertises exact source selection and retains its scope through summary, Evi
       ).statistics.parsed_javascript_files,
     ).toBe(1);
     await client.ping();
+  } finally {
+    await client.close();
+    await transport.close();
+  }
+}, 60_000);
+
+it("selects sources by inventory glob through the public application tool", async () => {
+  const root = await createTestTempDirectory("rea-js-glob-mcp-");
+  await writeJavaScriptSourceSelectionFixture(root);
+  const { client, transport } = createSelectionClient();
+  try {
+    await client.connect(transport);
+    const selected = await client.callTool({
+      name: "analyze_javascript_application",
+      arguments: { input_path: root, source_paths: ["*.mjs"] },
+    });
+    expect(selected.isError, JSON.stringify(selected.content)).not.toBe(true);
+    const result = javascriptApplicationAnalysisResultSchema.parse(
+      parseEvidence(selected.structuredContent).normalized_result,
+    );
+    expect(result.source_selection).toEqual({
+      requested_paths: ["*.mjs"],
+      selected_paths: ["invalid.mjs", "main.mjs"],
+      unselected_files: 4,
+    });
+    expect(result.statistics).toMatchObject({
+      parsed_javascript_files: 1,
+      invalid_utf8_files: 1,
+      parse_failures: 0,
+    });
   } finally {
     await client.close();
     await transport.close();
