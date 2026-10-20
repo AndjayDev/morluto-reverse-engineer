@@ -11,10 +11,13 @@ import {
 import {
   BOOK_NOT_FOUND,
   BOOK_ROWS,
+  FIRST_BOOK,
+  SECOND_BOOK,
   book,
   renamedBook,
 } from "../../../tests/fixtures/environmentStateWrites.js";
 import { compareEnvironment } from "./environmentCompare.js";
+import { environmentArguments, IdMap } from "./environmentCompareIds.js";
 import { matchProbeRequest } from "./environmentCompareMatch.js";
 
 const fixture = environmentStateServeFixture(timedCaptureEvidence(BOOK_ROWS));
@@ -126,5 +129,55 @@ describe("compareEnvironment", () => {
     expect(report.tools.map((tool) => tool.tool)).toContain(
       "delete_books_by_id",
     );
+  });
+});
+
+describe("what the comparison translates and learns", () => {
+  /** The books capture with a paged, filtered list and reports the state does not model, so other reports replay this one. */
+  const extra = environmentStateServeFixture(
+    timedCaptureEvidence([
+      ...BOOK_ROWS,
+      ["GET", "/api/books?limit=2&author=7", [FIRST_BOOK, SECOND_BOOK]],
+      ["GET", "/api/reports/1", [{ owner_id: 7 }]],
+    ]),
+  );
+  const extraSource = environmentServeSource(extra);
+
+  it("translates mapped ids in query values except those that page a list", () => {
+    const call = matchProbeRequest(extraSource.manifest, {
+      method: "GET",
+      path: "/api/books",
+      query: "?limit=101&author=101",
+      body: undefined,
+    });
+    const map = new IdMap();
+    map.learn(101, 1);
+    expect(call?.pagingArguments).toEqual(["limit"]);
+    expect(call && environmentArguments(call, map)).toEqual({
+      limit: "101",
+      author: "1",
+    });
+  });
+
+  it("learns no ids from another call's recording replayed in place of an answer", () => {
+    const report = compareEnvironment({
+      source: extraSource,
+      captureValue: extra.capture,
+      probes: [
+        {
+          label: "reports",
+          value: timedCaptureEvidence([
+            ["GET", "/api/reports/2", [{ owner_id: 107 }]],
+          ]),
+        },
+      ],
+      operation: "environment-compare",
+    });
+    if (!report.ok) throw report.error;
+    const [probe] = report.value.probes;
+    expect(probe?.ids_mapped).toBe(0);
+    expect(probe?.results[0]?.differences).toEqual([
+      { category: "value", pointer: "/0/owner_id", live: "107", env: "7" },
+    ]);
   });
 });

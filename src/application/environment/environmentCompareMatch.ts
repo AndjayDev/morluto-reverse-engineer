@@ -1,3 +1,4 @@
+import { isPagingParameter } from "../../domain/analysisView/environmentStateRules.js";
 import { segmentRule } from "../../domain/analysisView/webNetworkRouteTemplates.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import { decodedPathSegment } from "./environmentReplay.js";
@@ -29,6 +30,8 @@ export interface ProbeToolCall {
   readonly args: Record<string, JsonValue>;
   /** Argument names of the path values, in path order. */
   readonly pathArguments: readonly string[];
+  /** Argument names of query values that page a list: counts, never ids. */
+  readonly pagingArguments: readonly string[];
   /** Query names the tool does not take; the call drops them. */
   readonly ignoredQuery: readonly string[];
 }
@@ -91,13 +94,17 @@ export const matchProbeRequest = (
     pathArguments.push(name);
   }
   const ignoredQuery: string[] = [];
+  const pagingArguments: string[] = [];
   if (request.query !== null)
     for (const [key, value] of new URLSearchParams(request.query.slice(1))) {
       const name = names.query.get(key);
       if (name === undefined) ignoredQuery.push(key);
-      else if (!Object.hasOwn(args, name)) args[name] = value;
+      else if (!Object.hasOwn(args, name)) {
+        args[name] = value;
+        if (isPagingParameter(key)) pagingArguments.push(name);
+      }
     }
   if (names.body !== undefined && request.body !== undefined)
     args[names.body] = request.body;
-  return { tool, args, pathArguments, ignoredQuery };
+  return { tool, args, pathArguments, pagingArguments, ignoredQuery };
 };

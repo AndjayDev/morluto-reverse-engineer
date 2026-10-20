@@ -19,10 +19,10 @@ import {
   type Normalised,
 } from "./environmentCompareDiff.js";
 import {
+  environmentArguments,
   IdMap,
   learnIds,
   translatePath,
-  translateValue,
 } from "./environmentCompareIds.js";
 import {
   matchProbeRequest,
@@ -37,7 +37,9 @@ import {
   type EnvironmentSource,
   type ReplayedBody,
 } from "./environmentSource.js";
+import type { ReplayResult } from "./environmentReplay.js";
 import { prepareServedState, servedCatalog } from "./environmentState.js";
+import type { StateAnswer } from "./environmentStateAnswer.js";
 import { EnvironmentStateStore } from "./environmentStateStore.js";
 import {
   environmentToolAnswer,
@@ -174,6 +176,11 @@ const emptyNormalised = (): Normalised => ({
 const isSuccess = (status: number | null): boolean =>
   status !== null && status >= 200 && status < 300;
 
+/** Whether the environment answered this call itself, from the state or a recording of exactly these arguments, rather than replaying another call's recording. */
+const answersCall = (answer: ReplayResult): boolean =>
+  answer.replay.exact_match ||
+  (answer as Partial<StateAnswer>).state?.source === "state";
+
 interface ProbeRun {
   readonly answer: EnvironmentToolAnswer;
   readonly store: EnvironmentStateStore | undefined;
@@ -244,15 +251,7 @@ const compareStep = (
       typeof value === "string" && !run.map.hasEnv(value) && !held.has(value)
     );
   });
-  const args = Object.fromEntries(
-    Object.entries(call.args).map(([name, value]) => [
-      name,
-      call.pathArguments.includes(name)
-        ? value
-        : translateValue(value, run.map),
-    ]),
-  );
-  const answered = run.answer(call.tool, args);
+  const answered = run.answer(call.tool, environmentArguments(call, run.map));
   if (!answered.ok)
     return stepOf(base, call, {
       env_status: null,
@@ -268,7 +267,9 @@ const compareStep = (
     status: answered.value.status,
     body: answered.value.body,
   };
-  learnIds(live.body, env.body, run.map, heldIds(run.store));
+  // Another call's recording holds other entities, whose ids would map wrongly and, the first pairing winning, for good.
+  if (answersCall(answered.value))
+    learnIds(live.body, env.body, run.map, heldIds(run.store));
   const compared = compareAnswers(live, env, run.map);
   for (const key of NORMALISED_KEYS)
     run.normalised[key] += compared.normalised[key];

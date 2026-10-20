@@ -1,5 +1,6 @@
 import type { JsonObject } from "../../domain/analysisView/environmentStateRules.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
+import type { ProbeToolCall } from "./environmentCompareMatch.js";
 
 /** Field names that hold an identifier: `id`, `uuid`, `guid`, or names ending in `id` or `_id`. */
 export const ID_FIELD = /^(id|uuid|guid)$|(_id|Id|ID|_uuid|Uuid)$/u;
@@ -214,6 +215,20 @@ export const translateValue = (value: JsonValue, map: IdMap): JsonValue => {
       ? env
       : value;
 };
+
+/** The arguments the environment is called with: path values as matched, already in its terms, paging values as sent, and every other value translated. */
+export const environmentArguments = (
+  call: ProbeToolCall,
+  map: IdMap,
+): Record<string, JsonValue> =>
+  Object.fromEntries(
+    Object.entries(call.args).map(([name, value]) => [
+      name,
+      call.pathArguments.includes(name) || call.pagingArguments.includes(name)
+        ? value
+        : translateValue(value, map),
+    ]),
+  );
 
 /** A request path with every segment that decodes to a mapped live identifier replaced by the environment's value, encoded. */
 export const translatePath = (path: string, map: IdMap): string =>

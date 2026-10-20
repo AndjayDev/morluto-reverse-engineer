@@ -29,9 +29,14 @@ credentials and resets it between sequences.
 - Ids differ between a re-seeded application and the capture. The comparison maps them:
   - seeded entities pair across the two answers by a natural key: a field present on every element of both arrays whose
     string values are unique on each side and shared between them;
-  - identifier fields (`id`, `uuid`, names ending in `id` or `_id`) of paired objects, and of the two answers to the same
-    call, map the live value to the environment's value; a create's two answers map the new ids;
-  - path, query and body values equal to a mapped live id are translated before the environment answers.
+  - identifier fields (`id`, `uuid`, `guid`, and names ending in `_id`, `Id`, `ID`, `_uuid` or `Uuid`) of paired objects,
+    and of the two answers to the same call, map the live value to the environment's value; a create's two answers map
+    the new ids. Outside identifier fields, a string maps when the environment's state holds it as an id, and the keys
+    of two objects keyed by ids map when their values pair;
+  - ids are learned only from an answer the environment gave this call, from its state or from a recording of exactly
+    these arguments: a recording of another call that replay answers with instead holds other entities;
+  - path, query and body values equal to a mapped live id are translated before the environment answers, except query
+    values that page a list (`limit`, `offset`, `page` and the like), which count items rather than name one.
     A path value the map does not know, and the environment's state does not hold, is reported `unmapped-id`.
 - Answers compare after normalisation: mapped ids compare equal; two clock values (ISO-8601 strings, or epoch numbers under
   time-named fields) compare by format only; two different generated values (both UUIDs, or both of one length and the
@@ -39,8 +44,8 @@ credentials and resets it between sequences.
 - A step agrees when the statuses are equal and the normalised bodies are. Differences are categorised: `status`,
   `missing-field` (the application had it), `extra-field`, `value`, `length`, `order`, `clock-format`, `refused` (the
   environment refused the call), `not-served`, `no-tool` and `unmapped-id`, each with a JSON pointer and short values.
-- The report gives agreement overall, per probe and per tool, the counts per category, the ids mapped and the values
-  normalised, and each step's differences (at most 20 per step).
+- The report gives agreement overall, per probe and per tool, agreement ignoring item order beside it, the counts per
+  category, the ids mapped and the values normalised, and each step's differences (at most 20 per step).
 
 ## Non-goals
 
