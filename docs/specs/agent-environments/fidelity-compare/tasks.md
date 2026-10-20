@@ -1,12 +1,12 @@
 # Tasks
 
 - [x] Record the outcome, requirements and non-goals.
-- [ ] Load probes as captures.
-- [ ] Match probe requests to tools.
-- [ ] Map ids and translate arguments.
-- [ ] Normalise and categorise differences.
-- [ ] Compare per probe and report.
-- [ ] Add the command and its documentation.
-- [ ] Add unit and command tests.
-- [ ] Run the gates.
-- [ ] Measure six environments against their live applications and record the results.
+- [x] Load probes as captures.
+- [x] Match probe requests to tools.
+- [x] Map ids and translate arguments.
+- [x] Normalise and categorise differences.
+- [x] Compare per probe and report.
+- [x] Add the command and its documentation.
+- [x] Add unit and command tests.
+- [x] Run the gates.
+- [x] Measure six environments against their live applications and record the results.
