@@ -106,6 +106,12 @@ mcpTest(
       expect(response.isError).toBe(true);
       expect(parseMcpToolError(response).error).toMatchObject({
         code: "resource_constraint",
+        category: "resource_constraint",
+        retryable: false,
+        remediation: {
+          action:
+            "The maximum of 64 distinct rustc commit paths is fixed; waiting for another analysis cannot admit the unchanged artifact.",
+        },
         details: {
           operation: "inspect_rust_binary",
           resource: "capacity",

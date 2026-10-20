@@ -6,6 +6,7 @@ import { expect } from "vitest";
 import { toolContract } from "../../src/contracts/toolContracts.js";
 import { machoImageWithUnknownCommand } from "../../src/artifacts/apple/MachoImage.fixture.js";
 import {
+  createRustHashOverflowImage,
   createRustImage,
   rustDependencyPayload,
 } from "../fixtures/rust/image.js";
@@ -227,5 +228,32 @@ cliTest(
       { stage: "released", handleId: 0, fd: -1 },
     ]);
     expect(await readFile(path)).toEqual(bytes);
+  },
+);
+
+cliTest(
+  "refuses distinct rustc paths above capacity with non-retryable guidance",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-rust-cli-overflow-");
+    const path = join(root, "overflow.elf");
+    await writeFile(path, createRustHashOverflowImage());
+    const result = await cli.run({
+      arguments: ["inspect-rust-binary", path, "--json"],
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.json).toMatchObject({
+      code: "resource_constraint",
+      category: "resource_constraint",
+      retryable: false,
+      remediation: {
+        action:
+          "The maximum of 64 distinct rustc commit paths is fixed; waiting for another analysis cannot admit the unchanged artifact.",
+      },
+      details: {
+        operation: "inspect_rust_binary",
+        resource: "capacity",
+        reported_limits: { maximum_rustc_hashes: 64 },
+      },
+    });
   },
 );

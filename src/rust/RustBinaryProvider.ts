@@ -186,7 +186,15 @@ const failureForPrimary = (cause: unknown, path: string): AnalysisError => {
       cause.constraint.resource,
       `Selected artifact ${path}: ${cause.message}`,
       cause.constraint.reported_limits,
-      { cause },
+      {
+        cause,
+        ...(cause.constraint.resource === "capacity"
+          ? {
+              retryable: false,
+              remediationAction: `The maximum of ${String(cause.constraint.reported_limits.maximum_rustc_hashes)} distinct rustc commit paths is fixed; waiting for another analysis cannot admit the unchanged artifact.`,
+            }
+          : {}),
+      },
     );
   if (cause instanceof RustAuditableFormatFailure)
     return cause.kind === "unsupported"
