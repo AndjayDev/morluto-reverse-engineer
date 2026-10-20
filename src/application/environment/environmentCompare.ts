@@ -157,10 +157,19 @@ const probeRequests = (
           live: {
             status: exchange.status,
             body: liveBody(replayedBody(exchange)),
+            cut: replayedBody(exchange).kind === "cut",
           },
         },
       ];
     });
+
+const NORMALISED_KEYS = ["ids", "clocks", "generated", "large_bodies"] as const;
+const emptyNormalised = (): Normalised => ({
+  ids: 0,
+  clocks: 0,
+  generated: 0,
+  large_bodies: 0,
+});
 
 const isSuccess = (status: number | null): boolean =>
   status !== null && status >= 200 && status < 300;
@@ -261,7 +270,7 @@ const compareStep = (
   };
   learnIds(live.body, env.body, run.map, heldIds(run.store));
   const compared = compareAnswers(live, env, run.map);
-  for (const key of ["ids", "clocks", "generated"] as const)
+  for (const key of NORMALISED_KEYS)
     run.normalised[key] += compared.normalised[key];
   const differences = [...compared.differences];
   if (unknownPath && isSuccess(live.status) && !isSuccess(env.status))
@@ -299,10 +308,9 @@ const summaryOf = (
     steps.length === 0
       ? null
       : Math.round((count / steps.length) * 1000) / 1000;
-  const normalised = { ids: 0, clocks: 0, generated: 0 };
+  const normalised = emptyNormalised();
   for (const probe of probes)
-    for (const key of ["ids", "clocks", "generated"] as const)
-      normalised[key] += probe.normalised[key];
+    for (const key of NORMALISED_KEYS) normalised[key] += probe.normalised[key];
   return {
     probes: probes.length,
     steps: steps.length,
@@ -379,7 +387,7 @@ export const compareEnvironment = (input: {
       store,
       served,
       map: new IdMap(),
-      normalised: { ids: 0, clocks: 0, generated: 0 },
+      normalised: emptyNormalised(),
     };
     const results = probeRequests(capture.value.records).map((request) =>
       compareStep(run, source.manifest, request),

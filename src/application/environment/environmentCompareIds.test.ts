@@ -106,6 +106,29 @@ describe("learnIds", () => {
   });
 });
 
+describe("learnIds over objects keyed by ids", () => {
+  it("pairs entries by a natural key in their values and maps the keys", () => {
+    const map = new IdMap();
+    learnIds(
+      {
+        data: {
+          liveA: { id: "liveA", name: "Lamp Oil" },
+          liveB: { id: "liveB", name: "Quarry" },
+        },
+      },
+      {
+        data: {
+          envB: { id: "envB", name: "Quarry" },
+          envA: { id: "envA", name: "Lamp Oil" },
+        },
+      },
+      map,
+      new Set(),
+    );
+    expect([map.env("liveA"), map.env("liveB")]).toEqual(["envA", "envB"]);
+  });
+});
+
 describe("translateValue", () => {
   it("replaces mapped live identifiers at any depth in the original value's type", () => {
     const map = new IdMap();

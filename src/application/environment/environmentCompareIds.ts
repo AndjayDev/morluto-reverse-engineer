@@ -121,6 +121,40 @@ export const pairElements = (
   env: readonly JsonValue[],
 ): Array<readonly [number, number]> => pairing(live, env).pairs;
 
+/**
+ * Two objects keyed by ids, sharing no key, whose object values pair by a natural key: each pair maps the live key to the
+ * environment's and is learned from in turn. Returns whether the objects were read that way.
+ */
+const learnKeyedEntries = (
+  live: JsonObject,
+  env: JsonObject,
+  map: IdMap,
+  heldIds: ReadonlySet<string>,
+): boolean => {
+  const liveEntries = Object.entries(live);
+  const envEntries = Object.entries(env);
+  if (
+    liveEntries.length === 0 ||
+    envEntries.length === 0 ||
+    liveEntries.some(([key]) => Object.hasOwn(env, key)) ||
+    !liveEntries.every(([, value]) => isObject(value)) ||
+    !envEntries.every(([, value]) => isObject(value))
+  )
+    return false;
+  const paired = pairing(
+    liveEntries.map(([, value]) => value),
+    envEntries.map(([, value]) => value),
+  );
+  if (paired.by !== "key") return false;
+  for (const [left, right] of paired.pairs) {
+    const [liveKey, liveValue] = liveEntries[left]!;
+    const [envKey, envValue] = envEntries[right]!;
+    map.learn(liveKey, envKey);
+    learnIds(liveValue, envValue, map, heldIds);
+  }
+  return true;
+};
+
 /** Learn identifier pairs from the live and environment answers to one call: identifier fields, and strings the state holds as ids, of objects that pair, at any depth. */
 export const learnIds = (
   live: JsonValue | undefined,
@@ -142,6 +176,7 @@ export const learnIds = (
     return;
   }
   if (!isObject(live) || !isObject(env)) return;
+  if (learnKeyedEntries(live, env, map, heldIds)) return;
   for (const [key, value] of Object.entries(live)) {
     if (!Object.hasOwn(env, key)) continue;
     const other = env[key];

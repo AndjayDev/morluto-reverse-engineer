@@ -35,7 +35,12 @@ describe("compareAnswers", () => {
       map,
     );
     expect(result.differences).toEqual([]);
-    expect(result.normalised).toEqual({ ids: 1, clocks: 1, generated: 2 });
+    expect(result.normalised).toEqual({
+      ids: 1,
+      clocks: 1,
+      generated: 2,
+      large_bodies: 0,
+    });
   });
 
   it("categorises status, missing and extra fields, values and clock formats", () => {
@@ -107,5 +112,15 @@ describe("compareAnswers", () => {
       compare({ stats: [[1792450800, 3]] }, { stats: [[1792285200, 3]] })
         .differences,
     ).toEqual([]);
+  });
+
+  it("compares a live body over the replay limit by status only and counts it", () => {
+    const result = compareAnswers(
+      { status: 200, body: '{"data":[', cut: true },
+      { status: 200, body: null },
+      new IdMap(),
+    );
+    expect(result.differences).toEqual([]);
+    expect(result.normalised.large_bodies).toBe(1);
   });
 });

@@ -35,6 +35,8 @@ export interface Normalised {
   ids: number;
   clocks: number;
   generated: number;
+  /** Live bodies over the replay limit, compared by status only. */
+  large_bodies: number;
 }
 
 /** At most this many differences are kept per step. */
@@ -92,7 +94,12 @@ const generatedPair = (live: string, env: string): boolean =>
 
 class Differ {
   readonly differences: Difference[] = [];
-  readonly normalised: Normalised = { ids: 0, clocks: 0, generated: 0 };
+  readonly normalised: Normalised = {
+    ids: 0,
+    clocks: 0,
+    generated: 0,
+    large_bodies: 0,
+  };
 
   constructor(readonly map: IdMap) {}
 
@@ -232,6 +239,8 @@ class Differ {
 export interface Answer {
   readonly status: number | null;
   readonly body: JsonValue;
+  /** Set when the body was over the replay limit, so only a prefix is known. */
+  readonly cut?: boolean;
 }
 
 /** Compare a live answer with the environment's after normalisation. */
@@ -248,6 +257,7 @@ export const compareAnswers = (
       live: String(live.status),
       env: String(env.status),
     });
-  differ.value(live.body, env.body, "");
+  if (live.cut === true) differ.normalised.large_bodies += 1;
+  else differ.value(live.body, env.body, "");
   return { differences: differ.differences, normalised: differ.normalised };
 };
