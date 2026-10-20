@@ -58,12 +58,12 @@ const formatKey = (format: ClockFormat): string =>
     ? `epoch-${format.unit}`
     : `iso${format.separator}${String(format.fraction)}${format.zone === "" ? "" : format.zone === "Z" ? "Z" : "offset"}`;
 
-/** The format of a clock value: an ISO-8601 string, or an epoch number under a time-named field. */
+/** The format of a clock value: an ISO-8601 string, or an epoch number under a time-named field or as an array item. */
 const clockFormat = (
   value: JsonValue,
   key: string | undefined,
 ): string | undefined => {
-  if (typeof value === "number" && (key === undefined || !TIME_FIELD.test(key)))
+  if (typeof value === "number" && key !== undefined && !TIME_FIELD.test(key))
     return undefined;
   const clock = readClock(value);
   return clock === undefined ? undefined : formatKey(clock.format);
@@ -144,6 +144,7 @@ class Differ {
   }
 
   array(live: JsonValue[], env: JsonValue[], pointer: string): void {
+    if (this.sameItems(live, env, pointer)) return;
     const pairs = pairElements(live, env);
     if (live.length !== env.length || pairs.length !== live.length)
       this.add({
@@ -159,6 +160,20 @@ class Differ {
       this.add({ category: "order", pointer });
     for (const [left, right] of pairs)
       this.value(live[left]!, env[right]!, `${pointer}/${String(left)}`);
+  }
+
+  /** Arrays of scalars holding the same items in another order differ only in order, as sets an application returns unordered do. */
+  sameItems(live: JsonValue[], env: JsonValue[], pointer: string): boolean {
+    const scalar = (item: JsonValue): boolean =>
+      item === null || typeof item !== "object";
+    if (live.length !== env.length || !live.every(scalar) || !env.every(scalar))
+      return false;
+    const key = (items: JsonValue[]): string =>
+      JSON.stringify(items.map((item) => JSON.stringify(item)).sort());
+    if (key(live) !== key(env)) return false;
+    if (JSON.stringify(live) !== JSON.stringify(env))
+      this.add({ category: "order", pointer });
+    return true;
   }
 
   object(live: JsonObject, env: JsonObject, pointer: string): void {

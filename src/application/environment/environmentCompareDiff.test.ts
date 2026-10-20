@@ -95,4 +95,17 @@ describe("compareAnswers", () => {
       ).differences,
     ).toEqual([]);
   });
+
+  it("reports a reordered set of scalars as order alone and reads epoch array items as clocks", () => {
+    expect(
+      compare(
+        { access: ["a", "b", "c"] },
+        { access: ["c", "a", "b"] },
+      ).differences.map((d) => [d.category, d.pointer]),
+    ).toEqual([["order", "/access"]]);
+    expect(
+      compare({ stats: [[1792450800, 3]] }, { stats: [[1792285200, 3]] })
+        .differences,
+    ).toEqual([]);
+  });
 });
