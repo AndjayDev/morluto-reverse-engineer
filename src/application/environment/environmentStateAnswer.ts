@@ -264,7 +264,9 @@ export const missingAnswer = (
     readonly id: string;
   },
 ): Result<StateAnswer, AnalysisError> => {
-  // The write gate takes a 2xx JSON null as an absence too, so a delete it confirmed that way can be answered.
+  // A read also answers with a 2xx JSON null, the absence the write gate accepts; a write never does, as a 2xx would
+  // report success for an entity that is not there.
+  const nullAbsence = tool.method === "GET";
   const latestAbsence = (ordinals: readonly number[]) =>
     ordinals
       .map((ordinal) => serving.source.exchanges.get(ordinal))
@@ -272,7 +274,8 @@ export const missingAnswer = (
         (exchange): exchange is RecordedExchange =>
           exchange !== undefined &&
           (isAbsence(exchange.status) ||
-            (exchange.status !== null &&
+            (nullAbsence &&
+              exchange.status !== null &&
               exchange.status >= 200 &&
               exchange.status < 300 &&
               recordedJson(exchange) === null)),

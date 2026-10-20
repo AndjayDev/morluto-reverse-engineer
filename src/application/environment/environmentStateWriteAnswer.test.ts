@@ -472,4 +472,20 @@ describe("missing entities after a delete", () => {
       state: { view: "missing", id: "1" },
     });
   });
+
+  it("never answers a write of a missing entity with success, even when the write recorded a 2xx null", () => {
+    const books = servedFrom([
+      ...BOOK_INIT_ROWS,
+      ["DELETE", "/api/books/2", null, 200],
+      ["GET", "/api/books/2", BOOK_NOT_FOUND, 404],
+    ]);
+    expect(books.state.writes.get("delete_books_by_id")).toMatchObject({
+      served: true,
+    });
+    expect(books.answer("delete_books_by_id", { id: "9" })).toMatchObject({
+      status: 404,
+      body: BOOK_NOT_FOUND,
+      state: { view: "missing", id: "9" },
+    });
+  });
 });
