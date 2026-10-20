@@ -205,3 +205,11 @@ fails on the previous head and passes here. The same gates passed again
 boundary set 75, conformance 279, `jscpd` 3.47%), the write verdicts over the 50
 captures were again unchanged plan by plan, and the smoke applied all 33 served
 write tools.
+
+A third round kept a checked line's path spelling (replay prefers a verbatim
+one, so two spellings of one parent stay separate lines) and compared a later
+slug rule with the values earlier calls recorded rather than only their member
+names; both new tests fail on the previous head. A fourth round chose a read's
+line as replay does, so a read spelled plainly is checked against the encoded
+line that answers it, and its list against that line's collection; its test
+fails on the previous head.

@@ -22,12 +22,14 @@ import {
   collectionTarget,
   entityTarget,
   isAbsence,
-  requestLine,
+  servedLine,
   succeeded,
   withBodies,
   writtenFieldChecks,
   SimulatedState,
   type CheckOutcome,
+  type CheckedLines,
+  type ServedLine,
 } from "./environmentStateWriteChecks.js";
 import { applyCreate } from "./environmentStateWriteCreate.js";
 import {
@@ -81,7 +83,7 @@ export class EnvironmentStateWriteSimulation {
   readonly #toolOf = new Map<number, StateToolFacts>();
   readonly #types = new Map<string, StateType>();
   /** Each list or document view's checked request lines, with the recording a call of the line is answered on. */
-  readonly #checkedLines: ReadonlyMap<string, ReadonlyMap<string, number>>;
+  readonly #checkedLines: ReadonlyMap<string, CheckedLines>;
   readonly #observations = new Set<number>();
   readonly #taint: WriteTaint;
   /** Modelled writes per target since its last check, with the fields each wrote (null: all). */
@@ -301,14 +303,14 @@ export class EnvironmentStateWriteSimulation {
 
   #check(view: StateView, record: StateRecordFacts): CheckOutcome | undefined {
     if (view.shape === "recorded") return undefined;
-    const line = this.#checkedLines.get(view.tool)?.get(requestLine(record));
+    const line = this.#line(view, record);
     if (view.shape !== "item" && line === undefined) return undefined;
     if (view.shape === "document")
       return this.#input.io.withBody(record.ordinal, (body) =>
         checkDocumentRead(this.#state, view.tool, record, body),
       );
     const item = view.shape === "item";
-    const collection = collectionPathOf(record, item);
+    const collection = item ? collectionPathOf(record, true) : line!.collection;
     if (this.#taint.under(collection)) return undefined;
     if (!item) {
       const ids = this.#state
@@ -322,7 +324,7 @@ export class EnvironmentStateWriteSimulation {
         return undefined;
     }
     // The served answer keeps the envelope of the item view's or the line's base recording.
-    const base = item ? view.envelope_ordinal : line!;
+    const base = item ? view.envelope_ordinal : line!.ordinal;
     const ordinals = { base, read: record.ordinal };
     return withBodies(this.#input.io.withBody, ordinals, (served, body) => {
       const check = {
@@ -330,11 +332,17 @@ export class EnvironmentStateWriteSimulation {
         base: served,
         idField: this.#types.get(view.type)?.id_field ?? "",
         volatile: this.#input.volatileOf(view.type),
+        collection,
       };
       return item
         ? checkItemRead(this.#state, view, record, check)
         : checkListRead(this.#state, view, record, check);
     });
+  }
+
+  /** The checked line serving answers a list or document read's call from, as replay chooses it. */
+  #line(view: StateView, record: StateRecordFacts): ServedLine | undefined {
+    return servedLine(this.#checkedLines.get(view.tool), record);
   }
 
   #read(record: StateRecordFacts, index: number, tool: StateToolFacts): void {
@@ -465,8 +473,8 @@ export class EnvironmentStateWriteSimulation {
     record: StateRecordFacts,
     exercised: ReadonlySet<string>,
   ): boolean {
-    if (view.membership !== "all") return false;
-    const collection = collectionPathOf(record, false);
+    const collection = this.#line(view, record)?.collection;
+    if (view.membership !== "all" || collection === undefined) return false;
     const members = this.#state.members(view.type, collection);
     const key = (entity: StateEntity) =>
       entityTarget(entity.type, entity.collection, entity.id);

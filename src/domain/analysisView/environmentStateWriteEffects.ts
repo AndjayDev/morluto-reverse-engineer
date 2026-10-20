@@ -33,6 +33,7 @@ import {
   laterObservation,
   type Observed,
 } from "./environmentStateWriteObserve.js";
+import { integerOf, slugOf } from "./environmentStateWriteValues.js";
 import {
   pathValuesOf,
   type FieldRule,
@@ -54,10 +55,10 @@ export interface WriteDraft {
   contradictedBy: number | undefined;
   sideEffect: boolean;
   calls: number;
-  /** The fields each modelled update call showed and sent, which later rules must agree with. */
+  /** The scalar values each modelled update call showed and sent, which later rules must reproduce. */
   readonly updates: {
-    readonly shown: ReadonlySet<string>;
-    readonly sent: ReadonlySet<string>;
+    readonly shown: ReadonlyMap<string, JsonValue>;
+    readonly sent: ReadonlyMap<string, JsonValue>;
   }[];
 }
 
@@ -246,7 +247,15 @@ const refineUpdate = (
 const unsentChange = (rule: FieldRule): boolean =>
   rule.rule === "increment" || rule.rule === "slug";
 
-/** Whether a rule a later call showed would have changed a field an earlier call showed unchanged without sending. */
+/** A call's scalar members by name, as much of it as later rules are checked against. */
+const scalars = (object: JsonObject): Map<string, JsonValue> =>
+  new Map(
+    Object.entries(object).filter(
+      ([, value]) => value === null || typeof value !== "object",
+    ),
+  );
+
+/** Whether a rule a later call showed gives an earlier call a value other than the one it showed for a field it did not send. */
 const contradictsEarlierCalls = (
   draft: WriteDraft,
   rules: readonly FieldRule[],
@@ -256,11 +265,14 @@ const contradictsEarlierCalls = (
     (rule) =>
       unsentChange(rule) &&
       !ruled.has(rule.field) &&
-      draft.updates.some(
-        ({ shown, sent }) =>
-          shown.has(rule.field) &&
-          (rule.rule !== "slug" || sent.has(rule.from)),
-      ),
+      draft.updates.some(({ shown, sent }) => {
+        // An unruled field an earlier call showed is one it left as it was.
+        const value = shown.get(rule.field);
+        if (value === undefined) return false;
+        if (rule.rule === "increment") return integerOf(value) !== undefined;
+        const from = rule.rule === "slug" ? sent.get(rule.from) : undefined;
+        return typeof from === "string" && slugOf(from) !== value;
+      }),
   );
 };
 
@@ -380,10 +392,11 @@ export const applyUpdate = (
   if (!written.ok || (disagrees && !unknown))
     refuse(draft, step, "unexplained-change");
   if (!written.ok || disagrees || unknown) return recorded();
-  const shown = Object.keys(after.object);
-  const sentMembers = Object.keys(body);
-  context.io.retain(64 + [...shown, ...sentMembers].join("").length * 2);
-  draft.updates.push({ shown: new Set(shown), sent: new Set(sentMembers) });
+  const facts = { shown: scalars(after.object), sent: scalars(body) };
+  context.io.retain(
+    64 + JSON.stringify([...facts.shown, ...facts.sent]).length * 2,
+  );
+  draft.updates.push(facts);
   context.io.retain(64 + JSON.stringify(written.value).length * 2);
   context.state.put(updatedEntity(entity, written.value));
   // A later read that also shows an unmodelled change checks only the members this call sent.

@@ -2,6 +2,7 @@ import {
   projectAnalysisView,
   type AnalysisViewResult,
 } from "../../src/domain/analysisView/analysisView.js";
+import type { TemplateRule } from "../../src/domain/analysisView/environmentManifestRules.js";
 import type { Evidence } from "../../src/domain/evidence.js";
 import type { JsonValue } from "../../src/domain/jsonValue.js";
 import {
@@ -145,6 +146,7 @@ type EnvironmentStateView = Extract<
 /** The environment-state view a capture projects with no opt-in template rules. */
 export const environmentStateViewOf = (
   capture: Evidence,
+  templateRules: readonly TemplateRule[] = [],
 ): EnvironmentStateView => {
   const result = projectAnalysisView(
     {
@@ -155,7 +157,7 @@ export const environmentStateViewOf = (
       limitations: [],
       parameters: capture.parameters,
     },
-    { kind: "environment-state", template_rules: [] },
+    { kind: "environment-state", template_rules: [...templateRules] },
   );
   if (!result.ok || result.value.kind !== "environment-state")
     throw new Error("Expected an environment state");

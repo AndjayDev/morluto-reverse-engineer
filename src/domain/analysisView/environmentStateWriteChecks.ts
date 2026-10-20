@@ -9,6 +9,7 @@ import {
   collectionPathOf,
   decodedSegment,
   isObject,
+  isParam,
   lastSegmentValue,
   listItems,
   renderStateEntity,
@@ -27,44 +28,101 @@ import {
   type StateView,
 } from "./environmentStateRules.js";
 
-/**
- * A read's request line as serving names one: its path segments and query values decoded, the
- * query in any order. A query repeating a name is no call's arguments, so it keeps its spelling.
- */
-export const requestLine = (record: StateRecordFacts): string => {
-  const query = [...iterateUrlQueryParameters(record.query ?? "")];
-  if (new Set(query.map(([name]) => name)).size !== query.length)
-    return compositeKey([record.path, record.query ?? ""]);
-  return compositeKey([
-    segmentsOf(record.path).map(decodedSegment),
-    query.sort(([left], [right]) => compare(left, right)),
-  ]);
+/** A query as replay compares a call's: decoded values by name, in any order. A query repeating a name, which no call's arguments can carry, keeps its spelling. */
+const queryKey = (query: string | undefined): string => {
+  const pairs = [...iterateUrlQueryParameters(query ?? "")];
+  return new Set(pairs.map(([name]) => name)).size === pairs.length
+    ? compositeKey(pairs.sort(([left], [right]) => compare(left, right)))
+    : compositeKey([query ?? ""]);
 };
 
-/** Each list or document view's checked lines, by request line, as serving answers a call: from the first checked line it names, in the tool's recorded order. */
+/** A list or document view's checked lines, by query, in the tool's recorded order, and which path segments are the tool's parameters. */
+export interface CheckedLines {
+  readonly params: ReadonlySet<number>;
+  readonly byQuery: ReadonlyMap<
+    string,
+    readonly {
+      readonly ordinal: number;
+      readonly segments: readonly string[];
+    }[]
+  >;
+}
+
+/** The line a read's call is answered from, and the collection serving lists for it. */
+export interface ServedLine {
+  readonly ordinal: number;
+  readonly collection: string;
+}
+
+/** Each list or document view's checked lines. */
 export const checkedLines = (input: {
   readonly tools: readonly StateToolFacts[];
   readonly records: readonly StateRecordFacts[];
   readonly views: ReadonlyMap<string, StateView>;
-}): Map<string, ReadonlyMap<string, number>> => {
+}): Map<string, CheckedLines> => {
   const byOrdinal = new Map(
     input.records.map((record) => [record.ordinal, record]),
   );
   const tools = new Map(input.tools.map((tool) => [tool.name, tool]));
-  const byView = new Map<string, ReadonlyMap<string, number>>();
+  const byView = new Map<string, CheckedLines>();
   for (const view of input.views.values()) {
-    if (view.shape === "recorded" || view.shape === "item") continue;
+    const tool = tools.get(view.tool);
+    if (view.shape === "recorded" || view.shape === "item" || !tool) continue;
     const checked = new Set(view.checked_record_ordinals);
-    const lines = new Map<string, number>();
-    for (const ordinal of tools.get(view.tool)?.record_ordinals ?? []) {
+    const byQuery = new Map<
+      string,
+      { readonly ordinal: number; readonly segments: readonly string[] }[]
+    >();
+    for (const ordinal of tool.record_ordinals) {
       const record = byOrdinal.get(ordinal);
       if (!checked.has(ordinal) || record === undefined) continue;
-      const line = requestLine(record);
-      if (!lines.has(line)) lines.set(line, ordinal);
+      const key = queryKey(record.query);
+      const lines = byQuery.get(key) ?? [];
+      lines.push({ ordinal, segments: segmentsOf(record.path) });
+      byQuery.set(key, lines);
     }
-    byView.set(view.tool, lines);
+    const params = new Set(
+      segmentsOf(tool.path_template).flatMap((segment, index) =>
+        isParam(segment) ? [index] : [],
+      ),
+    );
+    byView.set(view.tool, { params, byQuery });
   }
   return byView;
+};
+
+/**
+ * The checked line serving answers a read's call from, ranked as replay ranks lines: every
+ * parameter the read's value verbatim or once percent-decoded and the query the read's, then the
+ * most verbatim parameters, then recorded order.
+ */
+export const servedLine = (
+  lines: CheckedLines | undefined,
+  record: StateRecordFacts,
+): ServedLine | undefined => {
+  const read = segmentsOf(record.path);
+  let best: { line: ServedLine; verbatim: number } | undefined;
+  for (const { ordinal, segments } of lines?.byQuery.get(
+    queryKey(record.query),
+  ) ?? []) {
+    if (segments.length !== read.length) continue;
+    let verbatim = 0;
+    const matches = segments.every((segment, index) => {
+      if (segment === read[index]) {
+        if (lines!.params.has(index)) verbatim += 1;
+        return true;
+      }
+      return (
+        lines!.params.has(index) && decodedSegment(segment) === read[index]
+      );
+    });
+    if (matches && (best === undefined || verbatim > best.verbatim))
+      best = {
+        line: { ordinal, collection: `/${segments.join("/")}` },
+        verbatim,
+      };
+  }
+  return best?.line;
 };
 
 export const entityTarget = (type: string, collection: string, id: string) =>
@@ -210,6 +268,8 @@ interface ListBodies {
   readonly baseItems: readonly JsonObject[];
   readonly idField: string;
   readonly volatile: ReadonlySet<string>;
+  /** The collection serving lists: the answering line's. */
+  readonly collection: string;
 }
 
 /** The served list rendered from the base with `members`, compared with the read; volatile fields take the read's values. */
@@ -231,10 +291,9 @@ const listCheck = (
 const checkAllList = (
   state: SimulatedState,
   view: StateListView,
-  record: StateRecordFacts,
   check: ListBodies,
 ): CheckOutcome => {
-  const collection = collectionPathOf(record, false);
+  const { collection } = check;
   const members = state.members(view.type, collection);
   const held = new Set(members.map((entity) => entity.id));
   return {
@@ -256,10 +315,9 @@ const checkAllList = (
 const checkRecordedList = (
   state: SimulatedState,
   view: StateListView,
-  record: StateRecordFacts,
   check: ListBodies,
 ): CheckOutcome => {
-  const collection = collectionPathOf(record, false);
+  const { collection } = check;
   const idOf = (item: JsonObject) => scalarText(item[check.idField]) ?? "";
   const members = check.baseItems.flatMap((item) => {
     const entity = state.entity(view.type, collection, idOf(item));
@@ -275,12 +333,12 @@ const checkRecordedList = (
   return { pass: listCheck(view, check, members), targets, unheld };
 };
 
-/** A list read on a checked line, compared with the answer the served environment renders on that line's base recording. */
+/** A list read on a checked line, compared with the answer the served environment renders on that line's base recording from the collection it names. */
 export const checkListRead = (
   state: SimulatedState,
   view: StateListView,
   record: StateRecordFacts,
-  check: ReadBodies & { readonly idField: string },
+  check: ReadBodies & { readonly idField: string; readonly collection: string },
 ): CheckOutcome | undefined => {
   if (!succeeded(record)) return undefined;
   const { body, base } = check;
@@ -296,8 +354,8 @@ export const checkListRead = (
     return undefined;
   const bodies = { ...check, body, base, items, baseItems };
   return view.membership === "all"
-    ? checkAllList(state, view, record, bodies)
-    : checkRecordedList(state, view, record, bodies);
+    ? checkAllList(state, view, bodies)
+    : checkRecordedList(state, view, bodies);
 };
 
 /** A document read on its checked line must equal the held document. */

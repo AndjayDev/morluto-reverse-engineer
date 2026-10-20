@@ -16,6 +16,7 @@ import {
   renamedBook,
   type Book,
 } from "../../../tests/fixtures/environmentStateWrites.js";
+import type { JsonValue } from "../jsonValue.js";
 import { ok } from "../result.js";
 import { updatedFields } from "./environmentStateWriteApply.js";
 
@@ -230,6 +231,112 @@ describe("update rules learned from a later call", () => {
       served: true,
       rules: expect.arrayContaining([{ field: "version", rule: "increment" }]),
       checked_record_ordinals: [4, 6],
+    });
+  });
+});
+
+describe("slug rules learned from a later call", () => {
+  /** A patch of the first book sending `name`, answered with `answered`, then a rename of the second. */
+  const renames = (name: string, answered: Book): TimedCaptureRow[] => {
+    const second = renamedBook(SECOND_BOOK, "Second Edition", 5);
+    return [
+      ...BOOK_INIT_ROWS,
+      ["PATCH", "/api/books/1", answered, 200, { name }],
+      ["GET", "/api/books/1", answered],
+      ["PATCH", "/api/books/2", second, 200, { name: "Second Edition" }],
+      ["GET", "/api/books/2", second],
+    ];
+  };
+
+  it("serves a slug rule an earlier call agrees with, and not one it contradicts", () => {
+    const kept = { ...FIRST_BOOK, updated_at: bookClock(3) };
+    expect(
+      gated(renames("First Book", kept), "patch_books_by_id"),
+    ).toMatchObject({
+      served: true,
+      rules: expect.arrayContaining([
+        { field: "slug", rule: "slug", from: "name" },
+      ]),
+    });
+    // The application renamed the first book without following its slug.
+    expect(
+      gated(
+        renames("Renamed Book", { ...kept, name: "Renamed Book" }),
+        "patch_books_by_id",
+      ),
+    ).toMatchObject({ served: false, reason: "unexplained-change" });
+  });
+});
+
+describe("checked lines", () => {
+  /** A list page that echoes its own request path, as some APIs do. */
+  const page = (path: string, items: JsonValue[]): JsonValue => ({
+    path,
+    items,
+  });
+  const PLAIN = "/api/orgs/acme1/books";
+  const ENCODED = "/api/orgs/%61cme1/books";
+  const OTHER = "/api/orgs/beta2/books";
+  /** Three organisations' books under one templated tool, two spelling one organisation differently, then deletes each confirmed by its list. */
+  const ROWS: TimedCaptureRow[] = [
+    ["GET", PLAIN, page(PLAIN, [FIRST_BOOK])],
+    ["GET", ENCODED, page(ENCODED, [SECOND_BOOK])],
+    ["GET", OTHER, page(OTHER, [THIRD_BOOK])],
+    ["GET", `${PLAIN}/1`, FIRST_BOOK],
+    ["GET", `${ENCODED}/2`, SECOND_BOOK],
+    ["GET", `${OTHER}/3`, THIRD_BOOK],
+    ["DELETE", `${ENCODED}/2`, "", 204],
+    ["GET", ENCODED, page(ENCODED, [])],
+    ["DELETE", `${OTHER}/3`, "", 204],
+    ["GET", OTHER, page(OTHER, [])],
+  ];
+
+  it("keeps a line's path spelling, as replay prefers the verbatim one", () => {
+    const view = environmentStateViewOf(timedCaptureEvidence(ROWS), [
+      "sibling-variance",
+    ]);
+    expect(view.views).toContainEqual(
+      expect.objectContaining({
+        shape: "list",
+        checked_record_ordinals: [0, 1, 2],
+      }),
+    );
+    expect(
+      view.writes.find((candidate) => candidate.effect === "delete"),
+    ).toMatchObject({ served: true, checked_record_ordinals: [7, 9] });
+  });
+  /** Organisations listed only under encoded or other spellings, a delete in each, then a list of the first spelled plainly. */
+  const deletedThenPlain = (listed: readonly Book[]): TimedCaptureRow[] => {
+    const third = "/api/orgs/gamma3/books";
+    const fourth = book(4, "Fourth Book", "2026-10-01T11:00:00Z");
+    return [
+      ["GET", ENCODED, [SECOND_BOOK]],
+      ["GET", OTHER, [THIRD_BOOK]],
+      ["GET", third, [fourth]],
+      ["GET", `${ENCODED}/2`, SECOND_BOOK],
+      ["GET", `${OTHER}/3`, THIRD_BOOK],
+      ["DELETE", `${ENCODED}/2`, "", 204],
+      ["GET", `${ENCODED}/2`, BOOK_NOT_FOUND, 404],
+      ["DELETE", `${OTHER}/3`, "", 204],
+      ["GET", `${OTHER}/3`, BOOK_NOT_FOUND, 404],
+      ["GET", PLAIN, [...listed]],
+    ];
+  };
+
+  it("checks a read spelled plainly against the encoded line serving answers it from", () => {
+    const deleteOf = (listed: readonly Book[]) =>
+      environmentStateViewOf(timedCaptureEvidence(deletedThenPlain(listed)), [
+        "sibling-variance",
+      ]).writes.find((candidate) => candidate.effect === "delete");
+    // Serving lists the encoded collection for the plain argument, which no longer holds the book.
+    expect(deleteOf([SECOND_BOOK])).toMatchObject({
+      served: false,
+      reason: "contradicted",
+      contradicted_by: 9,
+    });
+    expect(deleteOf([])).toMatchObject({
+      served: true,
+      checked_record_ordinals: [6, 8, 9],
     });
   });
 });
