@@ -28,7 +28,11 @@ const readHeader = (path: string): string | undefined => {
   } catch {
     return undefined;
   } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
+    // A failed close loses nothing here; it must not escape as a classification error.
+    if (descriptor !== undefined)
+      try {
+        closeSync(descriptor);
+      } catch {}
   }
 };
 
@@ -45,7 +49,13 @@ export const aubeShimTarget = (shimPath: string): string | undefined => {
   if (!isAbsolute(shimPath)) return undefined;
   const target = SHIM_HEADER.exec(readHeader(shimPath) ?? "")?.[1];
   if (target === undefined || isAbsolute(target)) return undefined;
-  return resolve(dirname(shimPath), target);
+  // The shim follows links to itself before taking its directory, so a link
+  // to a shim runs the target beside the real file.
+  try {
+    return resolve(dirname(realpathSync.native(shimPath)), target);
+  } catch {
+    return undefined;
+  }
 };
 
 /** Whether `shimPath` is an aube shim that runs exactly `entrypointPath`. */

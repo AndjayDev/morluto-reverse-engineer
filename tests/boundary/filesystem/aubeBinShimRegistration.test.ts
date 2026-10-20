@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, it } from "vitest";
 import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
@@ -32,19 +32,29 @@ fi
 const storeTarget = (version: string): string =>
   `../.mise/rea-agents@${version}/node_modules/rea-agents/scripts/rea.mjs`;
 
-/** Lay out one aube install of `version` and return its entrypoint and shim. */
-const installAube = async (
-  root: string,
+/**
+ * Lay out a mise install the way mise does: each version in its own directory
+ * under `installs/rea`, and `latest` a symlink to the newest. Returns the
+ * entrypoint and shim as REA sees them when launched through `latest`.
+ */
+const installWithMise = async (
+  installs: string,
   version: string,
   shimTarget = storeTarget(version),
 ): Promise<{ entrypoint: string; shim: string }> => {
-  const shim = join(root, "node_modules", ".bin", "rea");
-  const entrypoint = join(root, "node_modules", ".bin", storeTarget(version));
-  await mkdir(dirname(entrypoint), { recursive: true });
-  await writeFile(entrypoint, "#!/usr/bin/env node\n");
-  await mkdir(dirname(shim), { recursive: true });
-  await writeFile(shim, aubeShim(shimTarget), { mode: 0o755 });
-  return { entrypoint, shim };
+  const bin = join(installs, version, "node_modules", ".bin");
+  const script = join(bin, storeTarget(version));
+  await mkdir(dirname(script), { recursive: true });
+  await writeFile(script, "#!/usr/bin/env node\n");
+  await mkdir(bin, { recursive: true });
+  await writeFile(join(bin, "rea"), aubeShim(shimTarget), { mode: 0o755 });
+  await rm(join(installs, "latest"), { force: true });
+  await symlink(`./${version}`, join(installs, "latest"));
+  const latestBin = join(installs, "latest", "node_modules", ".bin");
+  return {
+    entrypoint: join(latestBin, storeTarget(version)),
+    shim: join(latestBin, "rea"),
+  };
 };
 
 const registerWithClaudeCode = async (
@@ -74,11 +84,11 @@ const claudeCodeState = async (
   ).find(({ client }) => client === "claude_code")?.state;
 
 it.skipIf(process.platform === "win32")(
-  "registers the aube bin shim, which stays aligned across an upgrade",
+  "registers the aube bin shim, which stays aligned across a mise upgrade",
   async () => {
     const home = await createTestTempDirectory("rea-aube-registration-");
-    const root = join(home, "installs", "rea", "latest");
-    const before = await installAube(root, "6.7.0");
+    const installs = join(home, "installs", "rea");
+    const before = await installWithMise(installs, "6.7.0");
 
     const command = setupRegistrationCommand(
       "linux",
@@ -92,11 +102,10 @@ it.skipIf(process.platform === "win32")(
     await registerWithClaudeCode(home, command);
     expect(await claudeCodeState(home, before.entrypoint)).toBe("aligned");
 
-    // An upgrade rewrites the shim in place and prunes the old store entry.
-    const after = await installAube(root, "6.8.0");
-    await rm(dirname(dirname(dirname(dirname(before.entrypoint)))), {
-      recursive: true,
-    });
+    // mise installs the new version beside the old, repoints `latest`, and
+    // prunes the old directory.
+    const after = await installWithMise(installs, "6.8.0");
+    await rm(join(installs, "6.7.0"), { recursive: true });
     expect(after.shim).toBe(before.shim);
     expect(
       setupRegistrationCommand("linux", undefined, after.entrypoint),
@@ -106,12 +115,46 @@ it.skipIf(process.platform === "win32")(
 );
 
 it.skipIf(process.platform === "win32")(
+  "reports a registered aube store script as stale so setup moves it to the shim",
+  async () => {
+    const home = await createTestTempDirectory("rea-aube-legacy-");
+    const { entrypoint } = await installWithMise(
+      join(home, "installs", "rea"),
+      "6.7.0",
+    );
+
+    await registerWithClaudeCode(home, [entrypoint, "mcp"]);
+    expect(
+      classifyClientRegistrationCommand([entrypoint, "mcp"], entrypoint),
+    ).toBe("owned");
+    expect(await claudeCodeState(home, entrypoint)).toBe("stale");
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "owns a link to the shim, which runs the target beside the real shim",
+  async () => {
+    const home = await createTestTempDirectory("rea-aube-link-");
+    const { entrypoint, shim } = await installWithMise(
+      join(home, "installs", "rea"),
+      "6.7.0",
+    );
+    const link = join(home, "bin", "rea");
+    await mkdir(dirname(link), { recursive: true });
+    await symlink(shim, link);
+
+    expect(classifyClientRegistrationCommand([link, "mcp"], entrypoint)).toBe(
+      "owned",
+    );
+  },
+);
+
+it.skipIf(process.platform === "win32")(
   "keeps the script path when the shim does not run this entrypoint",
   async () => {
     const home = await createTestTempDirectory("rea-aube-foreign-shim-");
-    const root = join(home, "installs", "rea", "latest");
-    const { entrypoint, shim } = await installAube(
-      root,
+    const { entrypoint, shim } = await installWithMise(
+      join(home, "installs", "rea"),
       "6.7.0",
       "../.mise/other@1.0.0/node_modules/other/bin.js",
     );
@@ -130,8 +173,10 @@ it.skipIf(process.platform === "win32")(
   "ignores shims in a format it does not know",
   async () => {
     const home = await createTestTempDirectory("rea-aube-unknown-shim-");
-    const root = join(home, "installs", "rea", "latest");
-    const { entrypoint, shim } = await installAube(root, "6.7.0");
+    const { entrypoint, shim } = await installWithMise(
+      join(home, "installs", "rea"),
+      "6.7.0",
+    );
     await writeFile(
       shim,
       aubeShim(storeTarget("6.7.0")).replace(
@@ -151,8 +196,10 @@ it.skipIf(process.platform === "win32")(
   "classifies a registered FIFO without blocking on it",
   async () => {
     const home = await createTestTempDirectory("rea-aube-fifo-");
-    const root = join(home, "installs", "rea", "latest");
-    const { entrypoint } = await installAube(root, "6.7.0");
+    const { entrypoint } = await installWithMise(
+      join(home, "installs", "rea"),
+      "6.7.0",
+    );
     const fifo = join(home, "rea-fifo");
     execFileSync("mkfifo", [fifo]);
 
