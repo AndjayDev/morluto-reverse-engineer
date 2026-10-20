@@ -65,6 +65,8 @@ export type FixtureCodeFields = {
   cellvars?: string[];
   localsplusnames?: string[];
   localspluskinds?: Buffer;
+  /** Raw marshal object in place of the co_consts tuple. */
+  constsObject?: Buffer;
   filename?: string;
   name?: string;
   qualname?: string;
@@ -94,7 +96,7 @@ export const marshalCode = (
     u32(fields.stacksize ?? 1),
     u32(fields.flags ?? 0),
     marshalBytes(fields.bytecode ?? Buffer.from([0x53])),
-    marshalSmallTuple(fields.consts ?? [marshalNone()]),
+    fields.constsObject ?? marshalSmallTuple(fields.consts ?? [marshalNone()]),
     fields.namesObject ??
       marshalSmallTuple(
         (fields.names ?? []).map((name) => marshalShortAscii(name)),

@@ -1,5 +1,5 @@
 import { z } from "incur";
-import { resolve } from "node:path";
+import { absoluteCallerPath } from "../filesystem/callerPath.js";
 import { createPythonPycService } from "../composition/pythonPyc.js";
 import { CLI_COMMANDS } from "../cliCommandNames.js";
 import { logCliCommand } from "../cliLogging.js";
@@ -37,7 +37,7 @@ export const registerPythonPycCommands = (
               () =>
                 service.inspect(
                   {
-                    path: resolve(args.path),
+                    path: absoluteCallerPath(args.path),
                     max_file_bytes: options.maxFileBytes,
                     max_objects: options.maxObjects,
                     max_depth: options.maxDepth,

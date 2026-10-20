@@ -265,7 +265,18 @@ export const pythonPycSchema = z
         message: "Code-object coverage disagrees with the listed code objects.",
       });
     }
-    report.code_objects.forEach((code, owner) =>
+    report.code_objects.forEach((code, owner) => {
+      if (
+        code.localspluskinds_hex !== null &&
+        code.localspluskinds_hex.length !==
+          (code.localsplusnames?.length ?? 0) * 2
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["code_objects", owner, "localspluskinds_hex"],
+          message:
+            "co_localspluskinds length does not match co_localsplusnames.",
+        });
       code.nested_code.forEach((nested, position) => {
         if (nested >= report.code_objects.length || nested === owner)
           context.addIssue({
@@ -273,8 +284,8 @@ export const pythonPycSchema = z
             path: ["code_objects", owner, "nested_code", position],
             message: "Nested code index does not name another listed object.",
           });
-      }),
-    );
+      });
+    });
   });
 
 export type PythonPyc = z.infer<typeof pythonPycSchema>;

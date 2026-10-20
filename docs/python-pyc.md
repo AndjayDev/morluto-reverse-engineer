@@ -50,7 +50,8 @@ complex parts use CPython's `inf`, `-inf`, and `nan` spellings.
 The selected file is limited to 16 MiB by default (64 MiB maximum). Marshal
 object count, nesting depth, and per-string size are bounded; exceeding a
 budget fails without partial success. Names repeated through a marshal
-reference count against the file budget once per copy the report carries, and
+reference count against the file budget once per copy the report carries,
+copied constant tables count against the object budget the same way, and
 integer digits count against the string budget. Magics outside the pinned 3.7–3.13 table,
 truncated headers, trailing marshal bytes, and a non-code top-level object are
 typed failures.

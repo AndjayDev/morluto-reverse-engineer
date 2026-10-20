@@ -273,6 +273,113 @@ it("rejects a code object whose location tables are not bytes", () => {
   ).toThrow(PythonPycFormatFailure);
 });
 
+it("hashes one shared byte string no matter how many times it is referenced", () => {
+  const payload = Buffer.alloc(1024 * 1024, 0x61);
+  const refs = 1200;
+  const bytes = Buffer.concat([
+    pythonPycHeader(3531),
+    marshalCode("py311", {
+      constsObject: Buffer.concat([
+        Buffer.from([0x28]),
+        u32(refs + 1),
+        Buffer.from([0xf3]),
+        u32(payload.length),
+        payload,
+        ...Array.from({ length: refs }, () => marshalRef(0)),
+      ]),
+    }),
+  ]);
+  const started = Date.now();
+  const report = parse(bytes);
+  expect(Date.now() - started).toBeLessThan(1000);
+  expect(root(report).consts).toHaveLength(refs + 1);
+  expect(root(report).consts[refs]).toEqual(root(report).consts[0]);
+  expect(root(report).consts[0]).toMatchObject({
+    kind: "bytes",
+    bytes: payload.length,
+  });
+});
+
+it("rejects constant tables whose copies exceed max_objects", () => {
+  const shared = Buffer.concat([
+    Buffer.from([0xa9, 20]),
+    Buffer.alloc(20, 0x4e),
+  ]);
+  const child = (constsObject: Buffer, name: string) =>
+    marshalCode("py311", { constsObject, name });
+  const bytes = Buffer.concat([
+    pythonPycHeader(3531),
+    marshalCode("py311", {
+      consts: [
+        child(shared, "a"),
+        ...Array.from({ length: 5 }, (_, index) =>
+          child(marshalRef(0), `b${index}`),
+        ),
+      ],
+    }),
+  ]);
+  const artifact = {
+    path: defaults.path,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    bytes: bytes.length,
+  };
+  const allowed = parsePythonPyc(bytes, artifact, defaults);
+  const entries = allowed.code_objects.reduce(
+    (sum, code) => sum + code.consts.length,
+    0,
+  );
+  expect(entries).toBeGreaterThan(allowed.coverage.objects);
+  expect(() =>
+    parsePythonPyc(bytes, artifact, {
+      ...defaults,
+      max_objects: entries - 1,
+    }),
+  ).toThrow(/Reported constants exceed max_objects/);
+});
+
+it("rejects NULL tuple items and mismatched local kinds", () => {
+  expect(() => parse(withConsts([Buffer.from([0x30])]))).toThrow(
+    PythonPycFormatFailure,
+  );
+  expect(
+    root(parse(withConsts([Buffer.from([0x7b, 0x4e, 0x54, 0x30])]))).consts[0],
+  ).toEqual({
+    kind: "dict",
+    length: 1,
+  });
+  expect(() =>
+    parse(
+      Buffer.concat([
+        pythonPycHeader(3531),
+        marshalCode("py311", {
+          localsplusnames: ["v"],
+          localspluskinds: Buffer.alloc(0),
+        }),
+      ]),
+    ),
+  ).toThrow(PythonPycFormatFailure);
+  const matched = parse(
+    Buffer.concat([
+      pythonPycHeader(3531),
+      marshalCode("py311", {
+        localsplusnames: ["v"],
+        localspluskinds: Buffer.from([0x20]),
+      }),
+    ]),
+  );
+  expect(root(matched).localsplusnames).toEqual(["v"]);
+  expect(root(matched).localspluskinds_hex).toBe("20");
+  const broken = {
+    ...matched,
+    code_objects: [
+      { ...root(matched), localspluskinds_hex: "" },
+      ...matched.code_objects.slice(1),
+    ],
+  };
+  expect(pythonPycSchema.safeParse(broken).success).toBe(false);
+  expect(pythonPycSchema.safeParse(matched).success).toBe(true);
+});
+
 it("leaves 3.11 alpha magics with other code layouts unsupported", () => {
   for (const magic of [3452, 3459, 3460, 3493]) {
     const bytes = Buffer.concat([pythonPycHeader(magic), marshalCode("py311")]);

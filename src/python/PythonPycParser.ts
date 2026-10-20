@@ -78,8 +78,14 @@ const unsupported = (message: string): never => {
   throw new PythonPycFormatFailure("unsupported", message);
 };
 
-const sha256 = (bytes: Buffer): string =>
-  createHash("sha256").update(bytes).digest("hex");
+const digests = new WeakMap<Buffer, string>();
+const sha256 = (bytes: Buffer): string => {
+  const cached = digests.get(bytes);
+  if (cached !== undefined) return cached;
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  digests.set(bytes, digest);
+  return digest;
+};
 
 /** Decode one bounded CPython 3.7–3.13 pyc without executing bytecode. */
 export const parsePythonPyc = (
@@ -162,6 +168,8 @@ class MarshalReader {
   readonly #intern: (MarshalValue | undefined)[] = [];
   /** Name and identifier bytes the report carries across all code objects. */
   #reportedStringBytes = 0;
+  /** Const summaries the report copies, including tables shared by TYPE_REF. */
+  #reportedConsts = 0;
 
   constructor(
     readonly bytes: Buffer,
@@ -262,6 +270,7 @@ class MarshalReader {
     const flags = this.u32();
     const bytecode = asBytes(this.readObject(depth + 1), "co_code");
     const consts = asTuple(this.readObject(depth + 1), "co_consts");
+    this.#chargeConsts(consts.length);
     const names = strings(asTuple(this.readObject(depth + 1), "co_names"));
     let varnames: string[] | null = null;
     let freevars: string[] | null = null;
@@ -272,10 +281,15 @@ class MarshalReader {
       localsplusnames = strings(
         asTuple(this.readObject(depth + 1), "co_localsplusnames"),
       );
-      localspluskinds_hex = asBytes(
+      const localspluskinds = asBytes(
         this.readObject(depth + 1),
         "co_localspluskinds",
-      ).toString("hex");
+      );
+      if (localspluskinds.length !== localsplusnames.length)
+        malformed(
+          "co_localspluskinds length does not match co_localsplusnames.",
+        );
+      localspluskinds_hex = localspluskinds.toString("hex");
     } else {
       varnames = strings(asTuple(this.readObject(depth + 1), "co_varnames"));
       freevars = strings(asTuple(this.readObject(depth + 1), "co_freevars"));
@@ -342,6 +356,20 @@ class MarshalReader {
       );
   }
 
+  /**
+   * A consts tuple shared through TYPE_REF is one decode but a full copy in
+   * every code object. Stop before those copies are built.
+   */
+  #chargeConsts(count: number): void {
+    this.#reportedConsts += count;
+    if (this.#reportedConsts > this.input.max_objects)
+      throw new PythonPycResourceFailure(
+        "objects",
+        { max_objects: this.input.max_objects },
+        `Reported constants exceed max_objects ${this.input.max_objects}.`,
+      );
+  }
+
   readRef(): MarshalValue {
     const index = this.u32();
     const value = this.#intern[index];
@@ -354,8 +382,12 @@ class MarshalReader {
 
   sequence(count: number, depth: number): MarshalValue[] {
     const items: MarshalValue[] = [];
-    for (let index = 0; index < count; index += 1)
-      items.push(this.readObject(depth + 1));
+    for (let index = 0; index < count; index += 1) {
+      const item = this.readObject(depth + 1);
+      if (item.kind === "null")
+        malformed("NULL object in marshal data for sequence.");
+      items.push(item);
+    }
     return items;
   }
 
