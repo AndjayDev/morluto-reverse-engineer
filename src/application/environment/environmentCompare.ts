@@ -304,13 +304,10 @@ const compareStep = (
   };
   // Another call's recording holds other entities, whose ids would map wrongly and, the first pairing winning, for good.
   if (answersCall(answered.value))
-    learnIds(
-      live.body,
-      env.body,
-      run.map,
-      heldIds(run.store),
-      collectionScope(call.tool),
-    );
+    learnIds(live.body, env.body, run.map, {
+      heldIds: heldIds(run.store),
+      scope: collectionScope(call.tool),
+    });
   const compared = compareAnswers(live, env, run.map);
   for (const key of NORMALISED_KEYS)
     run.normalised[key] += compared.normalised[key];

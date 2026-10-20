@@ -71,3 +71,14 @@ identifier fields only from strings, after NetBox's worker count of 1 mapped a l
 position teach ids only when no key is shared and the lengths agree, after a filtered Shlink list mapped one short URL to
 another; objects keyed by ids pair their entries (n8n data tables); reordered scalar sets differ in order only and epoch
 numbers in arrays are clocks (Sentry); and bodies over the replay limit compare by status.
+
+## After the review round
+
+The branch merged the write-plan branch at b6c3b168 (four serving and gate fixes its review found), then changed the
+comparison in nine places: ids are learned only from answers to the call itself and also per collection, paging values
+are never translated, calls go through the served tools' input schemas, browser probes keep their request bodies, empty
+bodies and large binary bodies compare as the server answers them, scalar sets compare after mapping, and id-keyed
+objects pair when some keys overlap. Each new test fails on the previous head. The gates above passed again (domain and
+services 7504 passed with 5 pre-existing skips; the focused boundaries 80; conformance; `jscpd` 3.46%). Re-run on the
+same probes with this branch and the template rule's merged, the six environments compare exactly as in the table above,
+step for step, with the same ids mapped and the same values normalised.

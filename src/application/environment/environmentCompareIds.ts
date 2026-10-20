@@ -195,7 +195,7 @@ const learnKeyedEntries = (
     const [liveKey, liveValue] = liveEntries[left]!;
     const [envKey, envValue] = envEntries[right]!;
     map.learn(liveKey, envKey);
-    learnIds(liveValue, envValue, map, heldIds);
+    learnIds(liveValue, envValue, map, { heldIds });
   }
   return true;
 };
@@ -209,9 +209,13 @@ export const learnIds = (
   live: JsonValue | undefined,
   env: JsonValue | undefined,
   map: IdMap,
-  heldIds: ReadonlySet<string>,
-  scope?: string,
+  known: {
+    /** Ids the environment's state holds, which mark a string outside identifier fields as an id. */
+    readonly heldIds: ReadonlySet<string>;
+    readonly scope?: string;
+  },
 ): void => {
+  const { heldIds, scope } = known;
   if (Array.isArray(live) && Array.isArray(env)) {
     // Items paired only by position stand for the same entities only when nothing could pair them by a key and the
     // arrays are the same length; otherwise a filtered or reordered list would teach wrong ids.
@@ -222,7 +226,7 @@ export const learnIds = (
     )
       return;
     for (const [left, right] of paired.pairs)
-      learnIds(live[left], env[right], map, heldIds, scope);
+      learnIds(live[left], env[right], map, known);
     return;
   }
   if (!isObject(live) || !isObject(env)) return;
@@ -240,7 +244,7 @@ export const learnIds = (
           heldIds.has(other)))
     )
       map.learn(value, other, IDENTITY_FIELD.test(key) ? scope : undefined);
-    else learnIds(value, other, map, heldIds);
+    else learnIds(value, other, map, { heldIds });
   }
 };
 

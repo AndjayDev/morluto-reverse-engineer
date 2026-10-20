@@ -68,29 +68,26 @@ describe("learnIds", () => {
         { id: 2, name: "Second", owner_id: "u-1" },
       ],
       map,
-      new Set(),
+      { heldIds: new Set() },
     );
     expect([map.env(101), map.env(102), map.env("u-9")]).toEqual([1, 2, "u-1"]);
     learnIds(
       { data: { uid: "x9", ref: "r-1" } },
       { data: { uid: "e3", ref: "r-2" } },
       map,
-      new Set(["r-2"]),
+      { heldIds: new Set(["r-2"]) },
     );
     expect(map.env("r-1")).toBe("r-2");
     expect(map.env("x9")).toBeUndefined();
-    learnIds({ workers: 0 }, { workers: 1 }, map, new Set(["1"]));
+    learnIds({ workers: 0 }, { workers: 1 }, map, { heldIds: new Set(["1"]) });
     expect(map.env(0)).toBeUndefined();
   });
 
   it("learns nothing from items that share a key but no value, or differ in count without one", () => {
     const map = new IdMap();
-    learnIds(
-      [{ code: "kelp", id: 1 }],
-      [{ code: "menu", id: 2 }],
-      map,
-      new Set(["menu"]),
-    );
+    learnIds([{ code: "kelp", id: 1 }], [{ code: "menu", id: 2 }], map, {
+      heldIds: new Set(["menu"]),
+    });
     learnIds(
       [{ n: 1, id: 3 }],
       [
@@ -98,10 +95,10 @@ describe("learnIds", () => {
         { n: 2, id: 5 },
       ],
       map,
-      new Set(),
+      { heldIds: new Set() },
     );
     expect(map.size).toBe(0);
-    learnIds([{ n: 1, id: 3 }], [{ n: 1, id: 4 }], map, new Set());
+    learnIds([{ n: 1, id: 3 }], [{ n: 1, id: 4 }], map, { heldIds: new Set() });
     expect(map.env(3)).toBe(4);
   });
 });
@@ -123,7 +120,7 @@ describe("learnIds over objects keyed by ids", () => {
         },
       },
       map,
-      new Set(),
+      { heldIds: new Set() },
     );
     expect([map.env("liveA"), map.env("liveB")]).toEqual(["envA", "envB"]);
   });
@@ -155,20 +152,14 @@ describe("translatePath", () => {
 describe("ids two collections reuse", () => {
   it("keeps each collection's pairing of a live id and translates a path id by its collection", () => {
     const map = new IdMap();
-    learnIds(
-      [{ id: 101, name: "First" }],
-      [{ id: 1, name: "First" }],
-      map,
-      new Set(),
-      "/api/books",
-    );
-    learnIds(
-      [{ id: 101, name: "Bob" }],
-      [{ id: 2, name: "Bob" }],
-      map,
-      new Set(),
-      "/api/authors",
-    );
+    learnIds([{ id: 101, name: "First" }], [{ id: 1, name: "First" }], map, {
+      heldIds: new Set(),
+      scope: "/api/books",
+    });
+    learnIds([{ id: 101, name: "Bob" }], [{ id: 2, name: "Bob" }], map, {
+      heldIds: new Set(),
+      scope: "/api/authors",
+    });
     expect(map.env(101, "/api/authors")).toBe(2);
     expect(map.env(101)).toBe(1);
     expect(map.pairs(101, 2)).toBe(true);
@@ -187,7 +178,7 @@ describe("objects keyed by ids that overlap", () => {
       { "2": { name: "A" }, "3": { name: "B" } },
       { "1": { name: "A" }, "2": { name: "B" } },
       map,
-      new Set(),
+      { heldIds: new Set() },
     );
     expect([map.env("2"), map.env("3")]).toEqual(["1", "2"]);
     const partial = new IdMap();
@@ -195,7 +186,7 @@ describe("objects keyed by ids that overlap", () => {
       { "2": { name: "A" }, "3": { name: "C" } },
       { "1": { name: "A" }, "2": { name: "B" } },
       partial,
-      new Set(),
+      { heldIds: new Set() },
     );
     expect(partial.size).toBe(0);
   });
