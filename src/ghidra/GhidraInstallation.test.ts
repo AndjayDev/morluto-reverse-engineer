@@ -10,7 +10,7 @@ import {
   type GhidraJavaObservation,
 } from "./GhidraJavaProbe.js";
 import { chmod, mkdir, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { elf, fat, thinMach } from "../domain/binaryTarget.fixture.js";
@@ -1544,6 +1544,145 @@ it.each([
     ).toBe(false);
   },
 );
+
+describe("Ghidra selected Java home spelling", () => {
+  it.skipIf(process.platform === "win32")(
+    "preserves the caller's JAVA_HOME when it selects the observed JDK",
+    async () => {
+      const root = await createTestTempDirectory("rea-ghidra-java-home-");
+      const observed = join(root, "jdk-21.0.12.1");
+      const selected = join(root, "opt", "openjdk@21");
+      await mkdir(observed, { recursive: true });
+      await mkdir(dirname(selected), { recursive: true });
+      await symlink(observed, selected, "dir");
+
+      const inspection = await inspectGhidraInstallation(
+        {
+          resourceOwner: inspectionResources.owner,
+          environment: {},
+          installDir: INSTALL,
+          javaHome: selected,
+          platform: "linux",
+          architecture: "x64",
+        },
+        host({ probeJava: () => javaProbeOk({ ...JAVA, home: observed }) }),
+      );
+
+      expect(inspection.status).toBe("available");
+      expect(inspection.javaHome).toBe(selected);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "prefers the stable Homebrew link over a versioned Cellar home",
+    async () => {
+      const root = await createTestTempDirectory("rea-ghidra-cellar-");
+      const version = join(root, "Cellar", "openjdk@21", "21.0.12.1");
+      const observed = join(
+        version,
+        "libexec",
+        "openjdk.jdk",
+        "Contents",
+        "Home",
+      );
+      const selected = join(
+        root,
+        "opt",
+        "openjdk@21",
+        "libexec",
+        "openjdk.jdk",
+        "Contents",
+        "Home",
+      );
+      await mkdir(observed, { recursive: true });
+      await mkdir(join(root, "opt"), { recursive: true });
+      await symlink(version, join(root, "opt", "openjdk@21"), "dir");
+
+      const inspection = await inspectGhidraInstallation(
+        {
+          resourceOwner: inspectionResources.owner,
+          environment: {},
+          installDir: INSTALL,
+          platform: "darwin",
+          architecture: "arm64",
+        },
+        host({
+          probeJava: () =>
+            javaProbeOk({
+              ...JAVA,
+              home: observed,
+              osArch: "aarch64",
+              osName: "Mac OS X",
+            }),
+        }),
+      );
+
+      expect(inspection.status).toBe("available");
+      expect(inspection.javaHome).toBe(selected);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "retains the observed JDK when the selected JAVA_HOME is a different JDK",
+    async () => {
+      const root = await createTestTempDirectory("rea-ghidra-other-jdk-");
+      const observed = join(root, "jdk-21");
+      const selected = join(root, "jdk-17");
+      await mkdir(observed, { recursive: true });
+      await mkdir(selected, { recursive: true });
+
+      const inspection = await inspectGhidraInstallation(
+        {
+          resourceOwner: inspectionResources.owner,
+          environment: {},
+          installDir: INSTALL,
+          javaHome: selected,
+          platform: "linux",
+          architecture: "x64",
+        },
+        host({ probeJava: () => javaProbeOk({ ...JAVA, home: observed }) }),
+      );
+
+      expect(inspection.status).toBe("available");
+      expect(inspection.javaHome).toBe(observed);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "keeps the caller's JAVA_HOME when its JDK is rejected",
+    async () => {
+      const root = await createTestTempDirectory("rea-ghidra-rejected-jdk-");
+      const observed = join(root, "jdk-17.0.20.1");
+      const selected = join(root, "opt", "openjdk@17");
+      await mkdir(observed, { recursive: true });
+      await mkdir(dirname(selected), { recursive: true });
+      await symlink(observed, selected, "dir");
+
+      const inspection = await inspectGhidraInstallation(
+        {
+          resourceOwner: inspectionResources.owner,
+          environment: {},
+          installDir: INSTALL,
+          javaHome: selected,
+          platform: "linux",
+          architecture: "x64",
+        },
+        host({
+          probeJava: () =>
+            javaProbeOk({
+              ...JAVA,
+              version: "17.0.20.1",
+              major: 17,
+              home: observed,
+            }),
+        }),
+      );
+
+      expect(inspection.status).toBe("unavailable");
+      expect(inspection.javaHome).toBe(selected);
+    },
+  );
+});
 
 it("retains a failed header observation as unknown in installation and doctor diagnostics", async () => {
   const failure = new ProviderAdapterError("ghidra", "ghidra:installation", {

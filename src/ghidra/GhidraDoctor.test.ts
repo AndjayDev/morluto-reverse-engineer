@@ -3,11 +3,14 @@ import { createInspectionResources } from "../../tests/fixtures/inspectionResour
 import { missingJavaProbe } from "./GhidraInstallation.fixture.js";
 import { ok as javaProbeOk } from "../domain/result.js";
 import type { GhidraJavaObservation } from "./GhidraJavaProbe.js";
+import { mkdir, symlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { runDoctor, type DoctorHost } from "../application/Doctor.js";
 import { createDoctorHostFixture } from "../application/Doctor.fixture.js";
 import { providerRegistrationEnvironment } from "../application/SetupRegistrationEnvironment.js";
+import { createTestTempDirectory } from "../../tests/fixtures/temporaryDirectory.js";
 import { WINDOWS_NATIVE_AUTHORITY_UNAVAILABLE_REASON } from "../process/WindowsAuthority.js";
 import * as nativeLoader from "../windows/WindowsNativeLoader.js";
 import {
@@ -116,6 +119,49 @@ describe("Ghidra doctor integration", async () => {
       detail: expect.stringContaining("21.0.11"),
     });
   });
+
+  it.skipIf(process.platform === "win32")(
+    "keeps the caller-supplied JAVA_HOME spelling in the registration environment",
+    async () => {
+      const root = await createTestTempDirectory(
+        "rea-ghidra-doctor-java-home-",
+      );
+      const observed = join(root, "jdk-21.0.12.1");
+      const selected = join(root, "opt", "openjdk@21");
+      await mkdir(observed, { recursive: true });
+      await mkdir(dirname(selected), { recursive: true });
+      await symlink(observed, selected, "dir");
+
+      const ghidra = await inspectGhidraInstallation(
+        {
+          resourceOwner: inspectionResources.owner,
+          environment: {},
+          installDir: INSTALL,
+          javaHome: selected,
+          platform: "linux",
+          architecture: "x64",
+        },
+        installationHost({
+          probeJava: () =>
+            javaProbeOk<GhidraJavaObservation>({
+              osArch: "amd64",
+              osName: "Linux",
+              version: "21.0.11",
+              major: 21,
+              home: observed,
+              bits: 64,
+              runtime: "jdk",
+            }),
+        }),
+      );
+
+      expect(
+        providerRegistrationEnvironment([
+          projectGhidraDoctorInspection(ghidra),
+        ]),
+      ).toMatchObject({ JAVA_HOME: selected });
+    },
+  );
 
   it.each([
     [

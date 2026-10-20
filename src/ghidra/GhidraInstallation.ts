@@ -319,6 +319,49 @@ interface GhidraInstallationCheckContext {
   readonly host: GhidraInstallationHost;
 }
 
+/** Whether two spellings select the same directory; an unresolvable path is never proven equal. */
+const resolvesToSameDirectory = (left: string, right: string): boolean => {
+  if (left === right) return true;
+  try {
+    return realpathSync.native(left) === realpathSync.native(right);
+  } catch (cause: unknown) {
+    // best-effort identity: an unresolved path stays a distinct spelling
+    void cause;
+    return false;
+  }
+};
+
+/**
+ * Homebrew keeps each formula version in `<prefix>/Cellar/<formula>/<version>`
+ * and selects one through the stable `<prefix>/opt/<formula>` link. Prefer the
+ * stable spelling so a registration survives the `brew upgrade` that removes
+ * the versioned directory.
+ */
+const stableCellarLink = (home: string): string | undefined => {
+  const match = /^(.*)\/Cellar\/([^/]+)\/[^/]+\/(.+)$/u.exec(home);
+  if (match === null) return undefined;
+  const [, prefix, formula, suffix] = match;
+  if (prefix === undefined || formula === undefined || suffix === undefined)
+    return undefined;
+  const candidate = `${prefix}/opt/${formula}/${suffix}`;
+  return resolvesToSameDirectory(candidate, home) ? candidate : undefined;
+};
+
+/**
+ * Report the JDK home a caller or registration can keep using. A caller-selected
+ * JAVA_HOME that resolves to the observed JDK keeps its own spelling; otherwise
+ * a stable package-manager link is preferred over a versioned directory.
+ */
+const selectedJavaHome = (
+  configured: string | undefined,
+  observed: string | null | undefined,
+): string | null => {
+  if (observed == null) return configured ?? null;
+  if (configured !== undefined && resolvesToSameDirectory(configured, observed))
+    return configured;
+  return stableCellarLink(observed) ?? observed;
+};
+
 /** Inspect an installation without importing a target or modifying Ghidra. */
 export const inspectGhidraInstallation = async (
   options: GhidraInstallationOptions,
@@ -384,7 +427,7 @@ export const inspectGhidraInstallation = async (
       installDir: coordinates.installDir,
       analyzeHeadlessPath: coordinates.analyzeHeadlessPath,
       providerVersion: coordinates.properties?.providerVersion ?? null,
-      javaHome: javaObservation?.home ?? options.javaHome ?? null,
+      javaHome: selectedJavaHome(options.javaHome, javaObservation?.home),
       javaVersion: javaObservation?.version ?? null,
       rejection: { code: failed.code, reason: failed.remediation },
     };
@@ -392,15 +435,16 @@ export const inspectGhidraInstallation = async (
     throw new AnalysisCancelledError("ghidra:installation", {
       cause: options.signal.reason,
       diagnostics: ghidraInstallationDiagnostics(
-        availableInstallation(coordinates, observation),
+        availableInstallation(coordinates, observation, options.javaHome),
       ),
     });
-  return availableInstallation(coordinates, observation);
+  return availableInstallation(coordinates, observation, options.javaHome);
 };
 
 const availableInstallation = (
   coordinates: GhidraInstallationCoordinates,
   observation: GhidraInstallationObservation,
+  configuredJavaHome: string | undefined,
 ): AvailableGhidraInstallation => {
   const providerVersion = coordinates.properties?.providerVersion;
   if (
@@ -421,7 +465,9 @@ const availableInstallation = (
     analyzeHeadlessPath: coordinates.analyzeHeadlessPath,
     applicationPropertiesPath: coordinates.applicationPropertiesPath,
     providerVersion,
-    javaHome: coordinates.java.home,
+    javaHome:
+      selectedJavaHome(configuredJavaHome, coordinates.java.home) ??
+      coordinates.java.home,
     javaVersion: coordinates.java.version,
   };
 };
