@@ -82,6 +82,28 @@ describe("learnIds", () => {
     learnIds({ workers: 0 }, { workers: 1 }, map, new Set(["1"]));
     expect(map.env(0)).toBeUndefined();
   });
+
+  it("learns nothing from items that share a key but no value, or differ in count without one", () => {
+    const map = new IdMap();
+    learnIds(
+      [{ code: "kelp", id: 1 }],
+      [{ code: "menu", id: 2 }],
+      map,
+      new Set(["menu"]),
+    );
+    learnIds(
+      [{ n: 1, id: 3 }],
+      [
+        { n: 1, id: 4 },
+        { n: 2, id: 5 },
+      ],
+      map,
+      new Set(),
+    );
+    expect(map.size).toBe(0);
+    learnIds([{ n: 1, id: 3 }], [{ n: 1, id: 4 }], map, new Set());
+    expect(map.env(3)).toBe(4);
+  });
 });
 
 describe("translateValue", () => {

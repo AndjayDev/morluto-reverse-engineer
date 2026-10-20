@@ -73,6 +73,45 @@ const keyCandidates = (items: readonly JsonObject[]): Set<string> => {
   return candidates;
 };
 
+/** How two arrays pair: by a natural key, by position because no key is shared, or by position although a shared key paired nothing. */
+interface Pairing {
+  readonly pairs: Array<readonly [number, number]>;
+  readonly by: "key" | "position" | "unmatched";
+}
+
+const pairing = (
+  live: readonly JsonValue[],
+  env: readonly JsonValue[],
+): Pairing => {
+  const byPosition = (by: Pairing["by"]): Pairing => ({
+    pairs: Array.from(
+      { length: Math.min(live.length, env.length) },
+      (_, index) => [index, index] as const,
+    ),
+    by,
+  });
+  if (!live.every(isObject) || !env.every(isObject))
+    return byPosition("position");
+  const liveItems = live as readonly JsonObject[];
+  const envItems = env as readonly JsonObject[];
+  const envKeys = keyCandidates(envItems);
+  const shared = [...keyCandidates(liveItems)].filter((key) =>
+    envKeys.has(key),
+  );
+  let best: Array<readonly [number, number]> = [];
+  for (const key of shared.sort()) {
+    const envIndex = new Map(envItems.map((item, index) => [item[key], index]));
+    const pairs: Array<readonly [number, number]> = [];
+    for (const [index, item] of liveItems.entries()) {
+      const match = envIndex.get(item[key]);
+      if (match !== undefined) pairs.push([index, match]);
+    }
+    if (pairs.length > best.length) best = pairs;
+  }
+  if (best.length > 0) return { pairs: best, by: "key" };
+  return byPosition(shared.length > 0 ? "unmatched" : "position");
+};
+
 /**
  * Pair two arrays' object elements by the natural key that pairs the most, as [live index, env index]; arrays of other
  * values, or with no shared key, pair by position up to the shorter length.
@@ -80,32 +119,7 @@ const keyCandidates = (items: readonly JsonObject[]): Set<string> => {
 export const pairElements = (
   live: readonly JsonValue[],
   env: readonly JsonValue[],
-): Array<readonly [number, number]> => {
-  const byPosition = (): Array<readonly [number, number]> =>
-    Array.from({ length: Math.min(live.length, env.length) }, (_, index) => [
-      index,
-      index,
-    ]);
-  if (!live.every(isObject) || !env.every(isObject)) return byPosition();
-  const liveItems = live as readonly JsonObject[];
-  const envItems = env as readonly JsonObject[];
-  const liveKeys = keyCandidates(liveItems);
-  const envKeys = keyCandidates(envItems);
-  let best:
-    | { key: string; pairs: Array<readonly [number, number]> }
-    | undefined;
-  for (const key of [...liveKeys].sort()) {
-    if (!envKeys.has(key)) continue;
-    const envIndex = new Map(envItems.map((item, index) => [item[key], index]));
-    const pairs: Array<readonly [number, number]> = [];
-    for (const [index, item] of liveItems.entries()) {
-      const match = envIndex.get(item[key]);
-      if (match !== undefined) pairs.push([index, match]);
-    }
-    if (pairs.length > (best?.pairs.length ?? 0)) best = { key, pairs };
-  }
-  return best?.pairs ?? byPosition();
-};
+): Array<readonly [number, number]> => pairing(live, env).pairs;
 
 /** Learn identifier pairs from the live and environment answers to one call: identifier fields, and strings the state holds as ids, of objects that pair, at any depth. */
 export const learnIds = (
@@ -115,7 +129,15 @@ export const learnIds = (
   heldIds: ReadonlySet<string>,
 ): void => {
   if (Array.isArray(live) && Array.isArray(env)) {
-    for (const [left, right] of pairElements(live, env))
+    // Items paired only by position stand for the same entities only when nothing could pair them by a key and the
+    // arrays are the same length; otherwise a filtered or reordered list would teach wrong ids.
+    const paired = pairing(live, env);
+    if (
+      paired.by === "unmatched" ||
+      (paired.by === "position" && live.length !== env.length)
+    )
+      return;
+    for (const [left, right] of paired.pairs)
       learnIds(live[left], env[right], map, heldIds);
     return;
   }

@@ -83,4 +83,16 @@ describe("compareAnswers", () => {
       ),
     ).toEqual(["value"]);
   });
+
+  it("compares an object keyed by mapped ids under the environment's keys", () => {
+    const map = new IdMap();
+    map.learn("liveTable", "envTable");
+    expect(
+      compare(
+        { tables: { liveTable: { name: "T" } } },
+        { tables: { envTable: { name: "T" } } },
+        map,
+      ).differences,
+    ).toEqual([]);
+  });
 });

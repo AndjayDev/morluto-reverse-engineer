@@ -162,18 +162,30 @@ class Differ {
   }
 
   object(live: JsonObject, env: JsonObject, pointer: string): void {
+    // An object keyed by ids compares each member under the environment's key.
+    const envKey = (key: string): string => {
+      const mapped = this.map.env(key);
+      return mapped !== undefined && Object.hasOwn(env, String(mapped))
+        ? String(mapped)
+        : key;
+    };
+    const matched = new Set<string>();
     for (const [key, value] of Object.entries(live)) {
       const child = `${pointer}/${escapePointer(key)}`;
-      if (!Object.hasOwn(env, key))
+      const other = envKey(key);
+      if (!Object.hasOwn(env, other))
         this.add({
           category: "missing-field",
           pointer: child,
           live: shown(value),
         });
-      else this.value(value, env[key]!, child, key);
+      else {
+        matched.add(other);
+        this.value(value, env[other]!, child, key);
+      }
     }
     for (const [key, value] of Object.entries(env))
-      if (!Object.hasOwn(live, key))
+      if (!matched.has(key))
         this.add({
           category: "extra-field",
           pointer: `${pointer}/${escapePointer(key)}`,
