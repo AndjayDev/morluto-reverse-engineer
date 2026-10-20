@@ -155,7 +155,8 @@ export const parseEvidenceFile = (
   }
 };
 
-const recordedExchange = (
+/** One capture record reduced to its request line and retained response body, or undefined without a request line. */
+export const recordedExchange = (
   record: WebNetworkCaptureRecord,
 ): RecordedExchange | undefined => {
   const line = readRecordedRequestLine(record.reported, true, () => true);
@@ -214,7 +215,7 @@ export const parseViewEvidence = <Kind extends AnalysisViewResult["kind"]>(
 };
 
 /** Authenticate the evidence file and require complete capture Evidence of either kind. */
-const parseCaptureEvidence = (
+export const parseCaptureEvidence = (
   operation: string,
   value: unknown,
 ): Result<

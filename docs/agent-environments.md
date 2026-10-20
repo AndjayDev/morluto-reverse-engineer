@@ -691,6 +691,53 @@ state is unavailable, and that neither is emulation and served
 content is untrusted data. It states that the recorded content belongs to the
 captured application and must not be published without the rights to it.
 
+## Measure fidelity against the application
+
+An environment agrees with its own capture by construction. What matters to an agent is how it answers the calls the
+capture did not make, what it shows after a write, and how it fails. `rea environment-compare` measures that against the
+application itself:
+
+```sh
+rea environment-compare manifest.json --evidence capture.json \
+  --probe probe-crud.json --probe probe-reads.json --json
+```
+
+Each `--probe` is capture Evidence (`inspect-web-network-capture` of a HAR, or `capture-browser-scenario`) of one call
+sequence made against the live application, seeded as it was for the capture and reset before the sequence. The command
+makes no network call: whoever records the probes drives the application with its own credentials. For each probe it
+resets the environment's state, takes the requests in the order they were made, matches each to the manifest tool of the
+same method whose path template fits with the most literal segments (a format-rule parameter must fit its format),
+answers it as the served environment would, and compares that answer with the application's.
+
+A re-seeded application holds the same entities under other ids, so the comparison maps them. Objects in the two answers
+to one call pair by a natural key, a string field unique on each side that both share, such as a name or a slug; their
+identifier fields (`id`, `uuid`, names ending in `id` or `_id`), and those of two single answers such as a create's, map
+the live value to the environment's. A live id in a later request's path, query or body is translated before the
+environment answers. After mapping, two clock values compare by format only (ISO-8601 strings, and epoch numbers under
+time-named fields), and two different values each side generated on its own compare equal: both UUIDs, or one length of
+eight or more with the same character classes and a digit. The report counts each kind of normalised value.
+
+A step agrees when the statuses and the normalised bodies are equal. The report gives agreement overall, per probe and
+per tool, and each step's differences, at most 20, with a JSON pointer and both values cut short:
+
+| Category        | Meaning                                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------------------ |
+| `status`        | The statuses differ                                                                                          |
+| `missing-field` | The application's object has a member the environment's lacks                                                |
+| `extra-field`   | The environment's object has a member the application's lacks                                                |
+| `value`         | Values differ, or one is an object or array and the other is not                                             |
+| `length`        | Arrays differ in length, or not every item pairs                                                             |
+| `order`         | Paired items come in a different order                                                                       |
+| `clock-format`  | Both are clocks, in different formats                                                                        |
+| `refused`       | The environment refused the call                                                                             |
+| `not-served`    | The request's tool is one the environment does not offer, such as a withheld write                           |
+| `no-tool`       | No manifest tool matches the request                                                                         |
+| `unmapped-id`   | The application answered with success and the environment did not, for a path id the comparison never mapped |
+
+Agreement covers only the calls the probes make, after the mapping the answers allow. Values compared by form, clocks
+and generated values, can still differ in content, and an equal answer after a write shows the state matched for that
+read, not that the write had no other effect.
+
 ## Compatibility verification
 
 `npm run verify:agentenv:environment` is the hosted `real-agentenv` lane

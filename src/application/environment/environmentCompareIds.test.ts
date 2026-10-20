@@ -1,0 +1,93 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  IdMap,
+  learnIds,
+  pairElements,
+  translateValue,
+} from "./environmentCompareIds.js";
+
+describe("IdMap", () => {
+  it("keeps the first pairing of either side and counts conflicting ones", () => {
+    const map = new IdMap();
+    map.learn(101, 1);
+    map.learn("101", 1);
+    map.learn(101, 2);
+    map.learn(102, 1);
+    expect(map.env(101)).toBe(1);
+    expect(map.env("101")).toBe(1);
+    expect(map.hasEnv(1)).toBe(true);
+    expect(map.size).toBe(1);
+    expect(map.conflicts).toBe(2);
+  });
+
+  it("ignores a pair of equal values", () => {
+    const map = new IdMap();
+    map.learn("same", "same");
+    expect(map.size).toBe(0);
+  });
+});
+
+describe("pairElements", () => {
+  it("pairs objects by the shared unique string field that pairs the most", () => {
+    const live = [
+      { id: 102, name: "Second", kind: "book" },
+      { id: 101, name: "First", kind: "book" },
+    ];
+    const env = [
+      { id: 1, name: "First", kind: "book" },
+      { id: 2, name: "Second", kind: "book" },
+      { id: 3, name: "Third", kind: "book" },
+    ];
+    expect(pairElements(live, env)).toEqual([
+      [0, 1],
+      [1, 0],
+    ]);
+  });
+
+  it("pairs by position without a shared key or for scalar items", () => {
+    expect(pairElements([{ n: 1 }, { n: 2 }], [{ n: 3 }])).toEqual([[0, 0]]);
+    expect(pairElements(["a", "b"], ["c", "d"])).toEqual([
+      [0, 0],
+      [1, 1],
+    ]);
+  });
+});
+
+describe("learnIds", () => {
+  it("maps identifier fields of paired list items and of two single answers", () => {
+    const map = new IdMap();
+    learnIds(
+      [
+        { id: 102, name: "Second", owner_id: "u-9" },
+        { id: 101, name: "First", owner_id: "u-9" },
+      ],
+      [
+        { id: 1, name: "First", owner_id: "u-1" },
+        { id: 2, name: "Second", owner_id: "u-1" },
+      ],
+      map,
+      new Set(),
+    );
+    expect([map.env(101), map.env(102), map.env("u-9")]).toEqual([1, 2, "u-1"]);
+    learnIds(
+      { data: { uid: "x9", ref: "r-1" } },
+      { data: { uid: "e3", ref: "r-2" } },
+      map,
+      new Set(["r-2"]),
+    );
+    expect(map.env("r-1")).toBe("r-2");
+    expect(map.env("x9")).toBeUndefined();
+  });
+});
+
+describe("translateValue", () => {
+  it("replaces mapped live identifiers at any depth in the original value's type", () => {
+    const map = new IdMap();
+    map.learn(101, 1);
+    map.learn("abc", "xyz");
+    expect(
+      translateValue({ ids: [101, "101", "abc"], name: "abc def", n: 5 }, map),
+    ).toEqual({ ids: [1, "1", "xyz"], name: "abc def", n: 5 });
+  });
+});
