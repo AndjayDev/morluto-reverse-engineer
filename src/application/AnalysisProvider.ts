@@ -136,6 +136,9 @@ export function createAnalysisExecution(
 /**
  * Compose one completed provider execution into its caller-visible Evidence,
  * so success and a late cancellation that retains it carry identical facts.
+ * The execution's analysis profile is preserved: a producer that completed
+ * with a concrete profile keeps it in the Evidence, and producers with none
+ * still compose `analysis_profile: null`.
  */
 export const createAnalysisExecutionEvidence = (
   operation: string,
@@ -157,6 +160,9 @@ export const createAnalysisExecutionEvidence = (
       : { relationshipCoverage: execution.relationshipCoverage }),
     locations: execution.locations,
     confidence,
+    ...(execution.analysisProfile === undefined
+      ? {}
+      : { analysisProfile: execution.analysisProfile }),
   });
 
 /** Provider-neutral application capability for one analysis operation. */
