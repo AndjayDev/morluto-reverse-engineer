@@ -153,3 +153,19 @@ export const translateValue = (value: JsonValue, map: IdMap): JsonValue => {
       ? env
       : value;
 };
+
+/** A request path with every segment that decodes to a mapped live identifier replaced by the environment's value, encoded. */
+export const translatePath = (path: string, map: IdMap): string =>
+  path
+    .split("/")
+    .map((segment) => {
+      let decoded = segment;
+      try {
+        decoded = decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+      const env = decoded === "" ? undefined : map.env(decoded);
+      return env === undefined ? segment : encodeURIComponent(String(env));
+    })
+    .join("/");

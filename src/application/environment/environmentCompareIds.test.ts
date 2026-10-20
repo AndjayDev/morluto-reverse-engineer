@@ -4,6 +4,7 @@ import {
   IdMap,
   learnIds,
   pairElements,
+  translatePath,
   translateValue,
 } from "./environmentCompareIds.js";
 
@@ -89,5 +90,17 @@ describe("translateValue", () => {
     expect(
       translateValue({ ids: [101, "101", "abc"], name: "abc def", n: 5 }, map),
     ).toEqual({ ids: [1, "1", "xyz"], name: "abc def", n: 5 });
+  });
+});
+
+describe("translatePath", () => {
+  it("replaces segments that decode to a mapped live id and re-encodes them", () => {
+    const map = new IdMap();
+    map.learn("live@1", "env@1");
+    map.learn(7, 3);
+    expect(translatePath("/api/releases/live%401/deploys/7/", map)).toBe(
+      "/api/releases/env%401/deploys/3/",
+    );
+    expect(translatePath("/api/%E0%A4%A/x", map)).toBe("/api/%E0%A4%A/x");
   });
 });

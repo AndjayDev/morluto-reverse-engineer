@@ -18,7 +18,12 @@ import {
   type DifferenceCategory,
   type Normalised,
 } from "./environmentCompareDiff.js";
-import { IdMap, learnIds, translateValue } from "./environmentCompareIds.js";
+import {
+  IdMap,
+  learnIds,
+  translatePath,
+  translateValue,
+} from "./environmentCompareIds.js";
 import {
   matchProbeRequest,
   type ProbeRequest,
@@ -202,7 +207,11 @@ const compareStep = (
     path: request.path,
     live_status: live.status,
   };
-  const call = matchProbeRequest(manifest, request);
+  // Matched in the environment's terms, so a tool whose path holds a seeded id literally still matches.
+  const call = matchProbeRequest(manifest, {
+    ...request,
+    path: translatePath(request.path, run.map),
+  });
   if (call === undefined)
     return stepOf(base, call, {
       env_status: null,
@@ -217,13 +226,15 @@ const compareStep = (
   const unknownPath = call.pathArguments.some((name) => {
     const value = call.args[name];
     return (
-      typeof value === "string" && !run.map.hasLive(value) && !held.has(value)
+      typeof value === "string" && !run.map.hasEnv(value) && !held.has(value)
     );
   });
   const args = Object.fromEntries(
     Object.entries(call.args).map(([name, value]) => [
       name,
-      translateValue(value, run.map),
+      call.pathArguments.includes(name)
+        ? value
+        : translateValue(value, run.map),
     ]),
   );
   const answered = run.answer(call.tool, args);
