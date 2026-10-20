@@ -124,3 +124,20 @@ describe("compareAnswers", () => {
     expect(result.normalised.large_bodies).toBe(1);
   });
 });
+
+describe("scalar sets of mapped ids", () => {
+  it("differ only in order once live ids are mapped", () => {
+    const map = new IdMap();
+    map.learn(101, 1);
+    map.learn(102, 2);
+    const compared = compareAnswers(
+      { status: 200, body: { ids: [101, 102] } },
+      { status: 200, body: { ids: [2, 1] } },
+      map,
+    );
+    expect(compared.differences).toEqual([
+      { category: "order", pointer: "/ids" },
+    ]);
+    expect(compared.normalised.ids).toBe(2);
+  });
+});

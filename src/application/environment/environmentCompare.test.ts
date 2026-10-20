@@ -16,9 +16,11 @@ import {
   book,
   renamedBook,
 } from "../../../tests/fixtures/environmentStateWrites.js";
-import { compareEnvironment } from "./environmentCompare.js";
+import { scenarioCaptureEvidence } from "../../../tests/fixtures/browserScenarioCapture.js";
+import { compareEnvironment, isCut } from "./environmentCompare.js";
 import { environmentArguments, IdMap } from "./environmentCompareIds.js";
 import { matchProbeRequest } from "./environmentCompareMatch.js";
+import { parseCaptureEvidence } from "./environmentSource.js";
 
 const fixture = environmentStateServeFixture(timedCaptureEvidence(BOOK_ROWS));
 const source = environmentServeSource(fixture);
@@ -28,6 +30,8 @@ const LIVE_FIRST = book(101, "First Book", "2026-10-20T09:00:00Z");
 const LIVE_SECOND = book(102, "Second Book", "2026-10-20T10:00:00Z");
 const LIVE_FOURTH = book(103, "Fourth Book", "2026-10-20T11:00:00Z");
 const LIVE_RENAMED = renamedBook(LIVE_FIRST, "Renamed Book", 5);
+const ANN = { id: 1, name: "Ann" };
+const BOB = { id: 2, name: "Bob" };
 
 const compare = (...probes: (readonly TimedCaptureRow[])[]) => {
   const report = compareEnvironment({
@@ -139,9 +143,62 @@ describe("what the comparison translates and learns", () => {
       ...BOOK_ROWS,
       ["GET", "/api/books?limit=2&author=7", [FIRST_BOOK, SECOND_BOOK]],
       ["GET", "/api/reports/1", [{ owner_id: 7 }]],
+      ["GET", "/api/authors", [ANN, BOB]],
+      ["GET", "/api/authors/1", ANN],
+      ["GET", "/api/authors/2", BOB],
+      ["GET", "/api/ping", ""],
+      ["POST", "/api/books/search", [FIRST_BOOK], 200, { q: "First" }],
     ]),
   );
   const extraSource = environmentServeSource(extra);
+  const compareExtra = (rows: readonly TimedCaptureRow[]) => {
+    const report = compareEnvironment({
+      source: extraSource,
+      captureValue: extra.capture,
+      probes: [{ label: "probe", value: timedCaptureEvidence(rows) }],
+      operation: "environment-compare",
+    });
+    if (!report.ok) throw report.error;
+    return report.value.probes[0]!;
+  };
+
+  it("translates a path id by the collection it names when two collections reuse a live id", () => {
+    // Live book 101 is the environment's book 1, while live author 101 is its author 2.
+    const probe = compareExtra([
+      ["GET", "/api/books", [LIVE_FIRST, LIVE_SECOND]],
+      [
+        "GET",
+        "/api/authors",
+        [
+          { ...ANN, id: 102 },
+          { ...BOB, id: 101 },
+        ],
+      ],
+      ["GET", "/api/authors/101", { ...BOB, id: 101 }],
+    ]);
+    expect(probe.results.map((step) => step.equal)).toEqual([true, true, true]);
+  });
+
+  it("refuses arguments the served tool's input schema refuses, as the server would", () => {
+    // A search replays its recording whatever it is sent, but the server refuses a body that is not an object.
+    const [step] = compareExtra([
+      ["POST", "/api/books/search", [FIRST_BOOK], 200, ["First"]],
+    ]).results;
+    expect(step?.categories).toEqual(["refused"]);
+    expect(step?.differences[0]?.env).toContain("Invalid arguments");
+  });
+
+  it("agrees on an empty response however each side spells it", () => {
+    expect(compareExtra([["GET", "/api/ping", ""]]).results[0]?.equal).toBe(
+      true,
+    );
+  });
+
+  it("compares a large binary body only by status, as it does large text", () => {
+    expect(isCut({ kind: "base64", encoded: "AAAA", whole: false })).toBe(true);
+    expect(isCut({ kind: "base64", encoded: "AAAA", whole: true })).toBe(false);
+    expect(isCut({ kind: "cut", text: "a" })).toBe(true);
+  });
 
   it("translates mapped ids in query values except those that page a list", () => {
     const call = matchProbeRequest(extraSource.manifest, {
@@ -179,5 +236,23 @@ describe("what the comparison translates and learns", () => {
     expect(probe?.results[0]?.differences).toEqual([
       { category: "value", pointer: "/0/owner_id", live: "107", env: "7" },
     ]);
+  });
+});
+
+describe("browser probes", () => {
+  it("keeps a browser probe's request bodies, which are its call arguments", () => {
+    const post = (purpose?: "manifest") => {
+      const parsed = parseCaptureEvidence(
+        "environment-compare",
+        scenarioCaptureEvidence(),
+        purpose,
+      );
+      if (!parsed.ok) throw parsed.error;
+      return parsed.value.records.find((record) =>
+        JSON.stringify(record.reported).includes('"method":"POST"'),
+      )?.reported;
+    };
+    expect(JSON.stringify(post("manifest"))).toContain("postData");
+    expect(JSON.stringify(post())).not.toContain("postData");
   });
 });

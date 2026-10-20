@@ -12,17 +12,32 @@ const isScalarId = (value: JsonValue | undefined): value is string | number =>
   (typeof value === "string" && value !== "") ||
   (typeof value === "number" && Number.isFinite(value));
 
-/** Live identifier values and the environment's values they stand for, in both directions. */
+/** Entity identity fields, whose values an answer's own collection scopes. */
+const IDENTITY_FIELD = /^(id|uuid|guid)$/u;
+
+/**
+ * Live identifier values and the environment's values they stand for, in both directions: one map for the whole probe,
+ * and one per collection for the ids of its own entities, since two collections can reuse a live id for entities the
+ * environment holds under different ids.
+ */
 export class IdMap {
   readonly #toEnv = new Map<string, string | number>();
   readonly #toLive = new Map<string, string | number>();
+  readonly #scoped = new Map<string, Map<string, string | number>>();
+  readonly #envValues = new Set<string>();
   #conflicts = 0;
 
-  /** Pair a live value with an environment value; the first pairing of either side wins. */
-  learn(live: string | number, env: string | number): void {
+  /** Pair a live value with an environment value; the first pairing of either side wins, and within a collection the first of that collection. */
+  learn(live: string | number, env: string | number, scope?: string): void {
     const liveKey = String(live);
     const envKey = String(env);
     if (liveKey === envKey) return;
+    if (scope !== undefined) {
+      const scoped = this.#scoped.get(scope) ?? new Map();
+      if (!scoped.has(liveKey)) scoped.set(liveKey, env);
+      this.#scoped.set(scope, scoped);
+      this.#envValues.add(envKey);
+    }
     const known = this.#toEnv.get(liveKey);
     if (known !== undefined) {
       if (String(known) !== envKey) this.#conflicts += 1;
@@ -34,18 +49,41 @@ export class IdMap {
     }
     this.#toEnv.set(liveKey, env);
     this.#toLive.set(envKey, live);
+    this.#envValues.add(envKey);
   }
 
-  env(live: string | number): string | number | undefined {
-    return this.#toEnv.get(String(live));
+  /** The environment's value for a live one: the collection's own when a scope is given and it knows one, else the probe's. */
+  env(live: string | number, scope?: string): string | number | undefined {
+    const liveKey = String(live);
+    return (
+      (scope === undefined
+        ? undefined
+        : this.#scoped.get(scope)?.get(liveKey)) ?? this.#toEnv.get(liveKey)
+    );
+  }
+
+  /** Whether a live value was paired with this environment value, in the probe's map or any collection's. */
+  pairs(live: string | number, env: string | number): boolean {
+    const liveKey = String(live);
+    const envKey = String(env);
+    const known = (mapped: string | number | undefined) =>
+      mapped !== undefined && String(mapped) === envKey;
+    return (
+      known(this.#toEnv.get(liveKey)) ||
+      [...this.#scoped.values()].some((scoped) => known(scoped.get(liveKey)))
+    );
   }
 
   hasLive(value: string | number): boolean {
-    return this.#toEnv.has(String(value));
+    const key = String(value);
+    return (
+      this.#toEnv.has(key) ||
+      [...this.#scoped.values()].some((scoped) => scoped.has(key))
+    );
   }
 
   hasEnv(value: string | number): boolean {
-    return this.#toLive.has(String(value));
+    return this.#envValues.has(String(value));
   }
 
   get size(): number {
@@ -123,8 +161,8 @@ export const pairElements = (
 ): Array<readonly [number, number]> => pairing(live, env).pairs;
 
 /**
- * Two objects keyed by ids, sharing no key, whose object values pair by a natural key: each pair maps the live key to the
- * environment's and is learned from in turn. Returns whether the objects were read that way.
+ * Two objects keyed by ids, not sharing every key, whose object values pair by a natural key: each pair maps the live key
+ * to the environment's and is learned from in turn. Returns whether the objects were read that way.
  */
 const learnKeyedEntries = (
   live: JsonObject,
@@ -134,10 +172,11 @@ const learnKeyedEntries = (
 ): boolean => {
   const liveEntries = Object.entries(live);
   const envEntries = Object.entries(env);
+  const shared = liveEntries.filter(([key]) => Object.hasOwn(env, key)).length;
   if (
     liveEntries.length === 0 ||
     envEntries.length === 0 ||
-    liveEntries.some(([key]) => Object.hasOwn(env, key)) ||
+    shared === liveEntries.length ||
     !liveEntries.every(([, value]) => isObject(value)) ||
     !envEntries.every(([, value]) => isObject(value))
   )
@@ -146,7 +185,12 @@ const learnKeyedEntries = (
     liveEntries.map(([, value]) => value),
     envEntries.map(([, value]) => value),
   );
-  if (paired.by !== "key") return false;
+  // Re-seeded ids can reuse a key for another entity, so keys that overlap are read as ids only when every entry pairs.
+  if (
+    paired.by !== "key" ||
+    (shared > 0 && paired.pairs.length !== liveEntries.length)
+  )
+    return false;
   for (const [left, right] of paired.pairs) {
     const [liveKey, liveValue] = liveEntries[left]!;
     const [envKey, envValue] = envEntries[right]!;
@@ -156,12 +200,17 @@ const learnKeyedEntries = (
   return true;
 };
 
-/** Learn identifier pairs from the live and environment answers to one call: identifier fields, and strings the state holds as ids, of objects that pair, at any depth. */
+/**
+ * Learn identifier pairs from the live and environment answers to one call: identifier fields, and strings the state holds
+ * as ids, of objects that pair, at any depth. The identity fields of the answer's own entities, at its root or as items of
+ * a root array, are also learned under `scope`, the collection the call names.
+ */
 export const learnIds = (
   live: JsonValue | undefined,
   env: JsonValue | undefined,
   map: IdMap,
   heldIds: ReadonlySet<string>,
+  scope?: string,
 ): void => {
   if (Array.isArray(live) && Array.isArray(env)) {
     // Items paired only by position stand for the same entities only when nothing could pair them by a key and the
@@ -173,7 +222,7 @@ export const learnIds = (
     )
       return;
     for (const [left, right] of paired.pairs)
-      learnIds(live[left], env[right], map, heldIds);
+      learnIds(live[left], env[right], map, heldIds, scope);
     return;
   }
   if (!isObject(live) || !isObject(env)) return;
@@ -190,7 +239,7 @@ export const learnIds = (
           typeof other === "string" &&
           heldIds.has(other)))
     )
-      map.learn(value, other);
+      map.learn(value, other, IDENTITY_FIELD.test(key) ? scope : undefined);
     else learnIds(value, other, map, heldIds);
   }
 };
@@ -230,18 +279,26 @@ export const environmentArguments = (
     ]),
   );
 
-/** A request path with every segment that decodes to a mapped live identifier replaced by the environment's value, encoded. */
-export const translatePath = (path: string, map: IdMap): string =>
+/**
+ * A request path with every segment that decodes to a mapped live identifier replaced by the environment's value,
+ * encoded; `scopeAt` names the collection of the segment at a position after the leading slash, whose own mapping wins.
+ */
+export const translatePath = (
+  path: string,
+  map: IdMap,
+  scopeAt: (index: number) => string | undefined = () => undefined,
+): string =>
   path
     .split("/")
-    .map((segment) => {
+    .map((segment, index) => {
       let decoded = segment;
       try {
         decoded = decodeURIComponent(segment);
       } catch {
         return segment;
       }
-      const env = decoded === "" ? undefined : map.env(decoded);
+      const env =
+        decoded === "" ? undefined : map.env(decoded, scopeAt(index - 1));
       return env === undefined ? segment : encodeURIComponent(String(env));
     })
     .join("/");

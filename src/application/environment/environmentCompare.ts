@@ -1,3 +1,4 @@
+import { fromJsonSchema } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { isJsonLike } from "../../domain/analysisView/EnvironmentManifestAccumulator.js";
 import {
@@ -25,7 +26,9 @@ import {
   translatePath,
 } from "./environmentCompareIds.js";
 import {
+  collectionScope,
   matchProbeRequest,
+  parameterScopes,
   type ProbeRequest,
   type ProbeToolCall,
 } from "./environmentCompareMatch.js";
@@ -37,7 +40,7 @@ import {
   type EnvironmentSource,
   type ReplayedBody,
 } from "./environmentSource.js";
-import type { ReplayResult } from "./environmentReplay.js";
+import type { ReplayArguments, ReplayResult } from "./environmentReplay.js";
 import { prepareServedState, servedCatalog } from "./environmentState.js";
 import type { StateAnswer } from "./environmentStateAnswer.js";
 import { EnvironmentStateStore } from "./environmentStateStore.js";
@@ -45,6 +48,7 @@ import {
   environmentToolAnswer,
   type EnvironmentToolAnswer,
 } from "./environmentToolAnswer.js";
+import type { EnvironmentToolDefinition } from "./environmentTools.js";
 
 /** One probe capture file: its label for the report and its parsed JSON. */
 export interface CompareProbeInput {
@@ -125,13 +129,20 @@ const requestBody = (
     : text;
 };
 
+/** An answer's body with empty text as no body, which both sides spell differently: a recording of nothing replays as "". */
+const bodyOf = (body: JsonValue): JsonValue => (body === "" ? null : body);
+
 /** The application's body as an environment answer carries it: JSON, text, or null when there is none or it is empty. */
 const liveBody = (body: ReplayedBody): JsonValue => {
   if (body.kind === "json") return body.value;
   if (body.kind === "none") return null;
   if (body.kind === "base64") return body.encoded;
-  return body.text === "" ? null : body.text;
+  return bodyOf(body.text);
 };
+
+/** A body over the replay limit, text or bytes: only a prefix is known, so only the status compares. */
+export const isCut = (body: ReplayedBody): boolean =>
+  body.kind === "cut" || (body.kind === "base64" && !body.whole);
 
 /** The probe's requests in the order they were made, each with the application's answer. */
 const probeRequests = (
@@ -147,6 +158,7 @@ const probeRequests = (
       const exchange = recordedExchange(record);
       if (line === null || line.kind !== "line" || exchange === undefined)
         return [];
+      const body = replayedBody(exchange);
       return [
         {
           ordinal: record.ordinal,
@@ -158,8 +170,8 @@ const probeRequests = (
           },
           live: {
             status: exchange.status,
-            body: liveBody(replayedBody(exchange)),
-            cut: replayedBody(exchange).kind === "cut",
+            body: liveBody(body),
+            cut: isCut(body),
           },
         },
       ];
@@ -181,10 +193,27 @@ const answersCall = (answer: ReplayResult): boolean =>
   answer.replay.exact_match ||
   (answer as Partial<StateAnswer>).state?.source === "state";
 
+/** A served tool's input check: the first problem with a call's arguments, or undefined. */
+type InputCheck = (args: ReplayArguments) => string | undefined;
+
+/** The input schema check the MCP server applies before a served tool answers, so a call it refuses is not compared as answered. */
+const inputCheck = (definition: EnvironmentToolDefinition): InputCheck => {
+  const schema = fromJsonSchema<ReplayArguments>(definition.inputSchema)[
+    "~standard"
+  ];
+  return (args) => {
+    const checked = schema.validate(args);
+    return checked instanceof Promise
+      ? undefined
+      : checked.issues?.[0]?.message;
+  };
+};
+
 interface ProbeRun {
   readonly answer: EnvironmentToolAnswer;
   readonly store: EnvironmentStateStore | undefined;
-  readonly served: ReadonlySet<string>;
+  /** The tools the environment offers, by name, with their input checks. */
+  readonly served: ReadonlyMap<string, InputCheck>;
   readonly map: IdMap;
   readonly normalised: Normalised;
 }
@@ -229,17 +258,22 @@ const compareStep = (
     path: request.path,
     live_status: live.status,
   };
-  // Matched in the environment's terms, so a tool whose path holds a seeded id literally still matches.
+  // Matched in the environment's terms, so a tool whose path holds a seeded id literally still matches; each path
+  // parameter translates by the collection it names, where the request already fits a tool.
+  const fitted = matchProbeRequest(manifest, request);
+  const scopes =
+    fitted === undefined ? undefined : parameterScopes(fitted.tool);
   const call = matchProbeRequest(manifest, {
     ...request,
-    path: translatePath(request.path, run.map),
+    path: translatePath(request.path, run.map, (index) => scopes?.get(index)),
   });
   if (call === undefined)
     return stepOf(base, call, {
       env_status: null,
       differences: [{ category: "no-tool", pointer: "" }],
     });
-  if (!run.served.has(call.tool.name))
+  const check = run.served.get(call.tool.name);
+  if (check === undefined)
     return stepOf(base, call, {
       env_status: null,
       differences: [{ category: "not-served", pointer: "" }],
@@ -251,25 +285,32 @@ const compareStep = (
       typeof value === "string" && !run.map.hasEnv(value) && !held.has(value)
     );
   });
-  const answered = run.answer(call.tool, environmentArguments(call, run.map));
-  if (!answered.ok)
-    return stepOf(base, call, {
+  const refusedWith = (message: string): CompareStep =>
+    stepOf(base, call, {
       env_status: null,
       differences: [
-        {
-          category: "refused",
-          pointer: "",
-          env: answered.error.message.slice(0, 200),
-        },
+        { category: "refused", pointer: "", env: message.slice(0, 200) },
       ],
     });
+  const args = environmentArguments(call, run.map);
+  const problem = check(args);
+  if (problem !== undefined)
+    return refusedWith(`Invalid arguments: ${problem}`);
+  const answered = run.answer(call.tool, args);
+  if (!answered.ok) return refusedWith(answered.error.message);
   const env: Answer = {
     status: answered.value.status,
-    body: answered.value.body,
+    body: bodyOf(answered.value.body),
   };
   // Another call's recording holds other entities, whose ids would map wrongly and, the first pairing winning, for good.
   if (answersCall(answered.value))
-    learnIds(live.body, env.body, run.map, heldIds(run.store));
+    learnIds(
+      live.body,
+      env.body,
+      run.map,
+      heldIds(run.store),
+      collectionScope(call.tool),
+    );
   const compared = compareAnswers(live, env, run.map);
   for (const key of NORMALISED_KEYS)
     run.normalised[key] += compared.normalised[key];
@@ -363,10 +404,16 @@ export const compareEnvironment = (input: {
   }).state;
   const catalog = servedCatalog(source, state, source.manifest.name, operation);
   if (!catalog.ok) return catalog;
-  const served = new Set(catalog.value.tools.map((tool) => tool.name));
+  const served = new Map(
+    catalog.value.tools.map((definition) => [
+      definition.name,
+      inputCheck(definition),
+    ]),
+  );
   const probes: CompareProbeReport[] = [];
   for (const [index, probe] of input.probes.entries()) {
-    const capture = parseCaptureEvidence(operation, probe.value);
+    // A probe's request bodies are its call arguments, which a replay projection of a browser capture drops.
+    const capture = parseCaptureEvidence(operation, probe.value, "manifest");
     if (!capture.ok)
       return err(
         inputError(

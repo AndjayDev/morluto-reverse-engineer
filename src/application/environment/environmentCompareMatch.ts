@@ -36,6 +36,36 @@ export interface ProbeToolCall {
   readonly ignoredQuery: readonly string[];
 }
 
+/** A tool's path segments up to `end`, a parameter as `{}`, so tools naming one parameter differently share collections. */
+const collectionAt = (tool: EnvironmentManifestTool, end: number): string => {
+  const params = new Set(tool.params.map((param) => param.index));
+  return `/${tool.path_template
+    .slice(1)
+    .split("/")
+    .slice(0, end)
+    .map((segment, index) => (params.has(index) ? "{}" : segment))
+    .join("/")}`;
+};
+
+/** The collection a call of the tool names: its path, less the trailing parameter of an item route. */
+export const collectionScope = (tool: EnvironmentManifestTool): string => {
+  const length = tool.path_template.slice(1).split("/").length;
+  return collectionAt(
+    tool,
+    tool.params.some((param) => param.index === length - 1)
+      ? length - 1
+      : length,
+  );
+};
+
+/** The collection each path parameter names an entity of: the path before it, by the parameter's position. */
+export const parameterScopes = (
+  tool: EnvironmentManifestTool,
+): ReadonlyMap<number, string> =>
+  new Map(
+    tool.params.map((param) => [param.index, collectionAt(tool, param.index)]),
+  );
+
 interface Fit {
   readonly tool: EnvironmentManifestTool;
   readonly literals: number;

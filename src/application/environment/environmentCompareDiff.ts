@@ -5,7 +5,11 @@ import {
   type ClockFormat,
 } from "../../domain/analysisView/environmentStateWriteValues.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
-import { pairElements, type IdMap } from "./environmentCompareIds.js";
+import {
+  pairElements,
+  translateValue,
+  type IdMap,
+} from "./environmentCompareIds.js";
 
 export const DIFFERENCE_CATEGORIES = [
   "status",
@@ -113,8 +117,7 @@ class Differ {
       (typeof live === "string" || typeof live === "number") &&
       (typeof env === "string" || typeof env === "number")
     ) {
-      const mapped = this.map.env(live);
-      if (mapped !== undefined && String(mapped) === String(env)) {
+      if (this.map.pairs(live, env)) {
         this.normalised.ids += 1;
         return;
       }
@@ -175,10 +178,15 @@ class Differ {
       item === null || typeof item !== "object";
     if (live.length !== env.length || !live.every(scalar) || !env.every(scalar))
       return false;
+    // Live ids compare in the environment's terms, as scalar values do.
+    const mapped = live.map((item) => translateValue(item, this.map));
     const key = (items: JsonValue[]): string =>
       JSON.stringify(items.map((item) => JSON.stringify(item)).sort());
-    if (key(live) !== key(env)) return false;
-    if (JSON.stringify(live) !== JSON.stringify(env))
+    if (key(mapped) !== key(env)) return false;
+    this.normalised.ids += mapped.filter(
+      (item, index) => item !== live[index],
+    ).length;
+    if (JSON.stringify(mapped) !== JSON.stringify(env))
       this.add({ category: "order", pointer });
     return true;
   }

@@ -151,3 +151,52 @@ describe("translatePath", () => {
     expect(translatePath("/api/%E0%A4%A/x", map)).toBe("/api/%E0%A4%A/x");
   });
 });
+
+describe("ids two collections reuse", () => {
+  it("keeps each collection's pairing of a live id and translates a path id by its collection", () => {
+    const map = new IdMap();
+    learnIds(
+      [{ id: 101, name: "First" }],
+      [{ id: 1, name: "First" }],
+      map,
+      new Set(),
+      "/api/books",
+    );
+    learnIds(
+      [{ id: 101, name: "Bob" }],
+      [{ id: 2, name: "Bob" }],
+      map,
+      new Set(),
+      "/api/authors",
+    );
+    expect(map.env(101, "/api/authors")).toBe(2);
+    expect(map.env(101)).toBe(1);
+    expect(map.pairs(101, 2)).toBe(true);
+    expect(
+      translatePath("/api/authors/101", map, (index) =>
+        index === 2 ? "/api/authors" : undefined,
+      ),
+    ).toBe("/api/authors/2");
+  });
+});
+
+describe("objects keyed by ids that overlap", () => {
+  it("pairs entries by a natural key when some re-seeded keys are reused, and only when every entry pairs", () => {
+    const map = new IdMap();
+    learnIds(
+      { "2": { name: "A" }, "3": { name: "B" } },
+      { "1": { name: "A" }, "2": { name: "B" } },
+      map,
+      new Set(),
+    );
+    expect([map.env("2"), map.env("3")]).toEqual(["1", "2"]);
+    const partial = new IdMap();
+    learnIds(
+      { "2": { name: "A" }, "3": { name: "C" } },
+      { "1": { name: "A" }, "2": { name: "B" } },
+      partial,
+      new Set(),
+    );
+    expect(partial.size).toBe(0);
+  });
+});

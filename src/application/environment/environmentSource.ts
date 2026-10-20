@@ -214,10 +214,11 @@ export const parseViewEvidence = <Kind extends AnalysisViewResult["kind"]>(
   });
 };
 
-/** Authenticate the evidence file and require complete capture Evidence of either kind. */
+/** Authenticate the evidence file and require complete capture Evidence of either kind; a browser capture's request bodies are kept only for the manifest purpose. */
 export const parseCaptureEvidence = (
   operation: string,
   value: unknown,
+  purpose: "manifest" | "replay" = "replay",
 ): Result<
   {
     readonly records: readonly WebNetworkCaptureRecord[];
@@ -241,7 +242,7 @@ export const parseCaptureEvidence = (
       .safeParse(evidence.value.parameters);
     if (scenario.success)
       return ok({
-        records: scenarioCaptureRecords(scenario.data, "replay").records,
+        records: scenarioCaptureRecords(scenario.data, purpose).records,
         evidenceId,
         captureKind: "browser-scenario",
         captureSha256: definition.success
