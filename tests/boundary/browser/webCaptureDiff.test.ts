@@ -276,6 +276,7 @@ describe("web capture dimension uncertainty", () => {
     markSectionsComplete(captured.value, ["scripts"]);
     const after = structuredClone(captured.value);
     after.scripts.items = [];
+    after.scripts.total = 0;
     const request = after.network.requests[0];
     if (request !== undefined) {
       request.status = 204;
@@ -994,6 +995,7 @@ describe("web capture diff incomplete inventories", () => {
         changes: [],
       });
       markSectionsComplete(incomplete, ["scripts"]);
+      incomplete.scripts.total = 0;
       expect(compare(complete, incomplete).changes).toEqual([
         expect.objectContaining({ change: "removed" }),
       ]);
@@ -1208,11 +1210,15 @@ const markSectionsComplete = (
       attach_limited_sections: string[];
       truncated_sections: string[];
       unavailable_sections: string[];
+      excluded: WebPageInspection["completeness"]["excluded"];
     };
   },
   sections: readonly string[],
 ): void => {
   const completed = new Set(sections);
+  inspection.completeness.excluded = inspection.completeness.excluded.filter(
+    ({ section }) => !completed.has(section),
+  );
   for (const key of [
     "policy_filtered_sections",
     "attach_limited_sections",
