@@ -59,6 +59,8 @@ export interface CompareStep {
   readonly live_status: number | null;
   readonly env_status: number | null;
   readonly equal: boolean;
+  /** Equal but for item order, which an application that returns sets in no fixed order cannot reproduce either. */
+  readonly equal_ignoring_order: boolean;
   readonly categories: DifferenceCategory[];
   readonly differences: Difference[];
   readonly ignored_query: string[];
@@ -88,6 +90,7 @@ export interface CompareReport {
     readonly steps: number;
     readonly equal: number;
     readonly agreement: number | null;
+    readonly agreement_ignoring_order: number | null;
     readonly categories: Record<DifferenceCategory, number>;
     readonly normalised: Normalised;
   };
@@ -188,6 +191,9 @@ const stepOf = (
     tool: call?.tool.name ?? null,
     env_status: outcome.env_status,
     equal: outcome.differences.length === 0,
+    equal_ignoring_order: outcome.differences.every(
+      (difference) => difference.category === "order",
+    ),
     categories,
     differences: outcome.differences.slice(0, STEP_DIFFERENCE_LIMIT),
     ignored_query: [...(call?.ignoredQuery ?? [])],
@@ -289,6 +295,10 @@ const summaryOf = (
   for (const step of steps)
     for (const category of step.categories) categories[category] += 1;
   const equal = steps.filter((step) => step.equal).length;
+  const ratio = (count: number): number | null =>
+    steps.length === 0
+      ? null
+      : Math.round((count / steps.length) * 1000) / 1000;
   const normalised = { ids: 0, clocks: 0, generated: 0 };
   for (const probe of probes)
     for (const key of ["ids", "clocks", "generated"] as const)
@@ -297,10 +307,10 @@ const summaryOf = (
     probes: probes.length,
     steps: steps.length,
     equal,
-    agreement:
-      steps.length === 0
-        ? null
-        : Math.round((equal / steps.length) * 1000) / 1000,
+    agreement: ratio(equal),
+    agreement_ignoring_order: ratio(
+      steps.filter((step) => step.equal_ignoring_order).length,
+    ),
     categories,
     normalised,
   };

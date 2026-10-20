@@ -112,6 +112,10 @@ describe("compareEnvironment", () => {
       ["unmapped-id", "status", "missing-field", "extra-field"],
     ]);
     expect(second?.results[0]?.categories).toEqual(["length", "order"]);
+    expect(second?.results[0]?.equal_ignoring_order).toBe(false);
+    expect(report.summary.agreement_ignoring_order).toBe(
+      report.summary.agreement,
+    );
     expect(report.summary.categories).toMatchObject({
       status: 2,
       "no-tool": 1,
