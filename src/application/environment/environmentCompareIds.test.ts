@@ -79,6 +79,8 @@ describe("learnIds", () => {
     );
     expect(map.env("r-1")).toBe("r-2");
     expect(map.env("x9")).toBeUndefined();
+    learnIds({ workers: 0 }, { workers: 1 }, map, new Set(["1"]));
+    expect(map.env(0)).toBeUndefined();
   });
 });
 

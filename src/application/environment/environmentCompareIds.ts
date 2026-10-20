@@ -107,7 +107,7 @@ export const pairElements = (
   return best?.pairs ?? byPosition();
 };
 
-/** Learn identifier pairs from the live and environment answers to one call: identifier fields of objects that pair, at any depth. */
+/** Learn identifier pairs from the live and environment answers to one call: identifier fields, and strings the state holds as ids, of objects that pair, at any depth. */
 export const learnIds = (
   live: JsonValue | undefined,
   env: JsonValue | undefined,
@@ -126,7 +126,11 @@ export const learnIds = (
     if (
       isScalarId(value) &&
       isScalarId(other) &&
-      (ID_FIELD.test(key) || heldIds.has(String(other)))
+      // Outside identifier fields only a string the state holds as an id counts: a counter that equals one is not an id.
+      (ID_FIELD.test(key) ||
+        (typeof value === "string" &&
+          typeof other === "string" &&
+          heldIds.has(other)))
     )
       map.learn(value, other);
     else learnIds(value, other, map, heldIds);
