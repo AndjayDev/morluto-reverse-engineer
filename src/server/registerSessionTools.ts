@@ -183,6 +183,13 @@ const registerOpenLifecycleTool = (
       const opened = await logToolExecution(logger, openContract.name, () =>
         session.open(input.path, {
           signal: context.mcpReq.signal,
+          ...(input.keep_others_open === true ? { keepOthersOpen: true } : {}),
+          ...(input.analysis_mode === "foreground"
+            ? {}
+            : { analysisMode: input.analysis_mode }),
+          ...(input.auto_background_after_ms === undefined
+            ? {}
+            : { autoBackgroundAfterMs: input.auto_background_after_ms }),
           ...(input.format === undefined ? {} : { formatHint: input.format }),
           ...(input.architecture === undefined
             ? {}
@@ -207,11 +214,17 @@ const registerOpenLifecycleTool = (
               }),
         }),
       );
+      const targetId = session.currentTargetId?.();
+      const analysis = session.analysisState?.();
       return opened.ok
         ? server.delivery.toCallToolResult(
             {
               ok: true,
-              value: binaryTargetSummary(opened.value),
+              value: {
+                ...binaryTargetSummary(opened.value),
+                ...(targetId === undefined ? {} : { target_id: targetId }),
+                ...(analysis === undefined ? {} : { analysis }),
+              },
             },
             openContract,
           )
@@ -245,6 +258,7 @@ const registerContextTools = (
             await getNavigationContext(analysis, input, context.mcpReq.signal),
             navigationContract,
           ),
+        input.target_id,
       );
       return admitted.ok
         ? admitted.value
@@ -263,6 +277,7 @@ const registerContextTools = (
             await inspectAddressContext(analysis, input, context.mcpReq.signal),
             addressContract,
           ),
+        input.target_id,
       );
       return admitted.ok
         ? admitted.value

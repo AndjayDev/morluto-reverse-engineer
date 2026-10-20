@@ -17,6 +17,12 @@ export const address = z
   );
 export const optionalAddress = address.optional();
 export const procedure = z.string().describe("The procedure name or address");
+export const targetId = z
+  .string()
+  .min(1)
+  .describe(
+    "Opaque target handle returned by open_binary. Omit to address the current target.",
+  );
 const exampleInputSchema = z.record(z.string(), jsonValueSchema);
 
 export const examplesFor = (

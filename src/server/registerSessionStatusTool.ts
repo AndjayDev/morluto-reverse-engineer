@@ -95,7 +95,13 @@ export const registerSessionStatusTool = (
           options,
           context.mcpReq.signal,
         );
-        status = await session.status({ signal: context.mcpReq.signal });
+        status = await session.status({
+          signal: context.mcpReq.signal,
+          ...(input.target_id === undefined
+            ? {}
+            : { targetId: input.target_id }),
+          ...(input.wait_ms === undefined ? {} : { waitMs: input.wait_ms }),
+        });
       } catch (cause) {
         if (!(cause instanceof AnalysisError)) throw cause;
         return server.delivery.toCallToolResult(err(cause), contract);

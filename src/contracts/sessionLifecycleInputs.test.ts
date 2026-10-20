@@ -47,4 +47,15 @@ describe("open_binary raw-binary input contract", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("defaults keep_others_open to false and accepts true", () => {
+    const defaulted = openBinaryInputSchema.parse({ path: "/tmp/fixture.bin" });
+    expect(defaulted.keep_others_open).toBe(false);
+    expect(
+      openBinaryInputSchema.parse({
+        path: "/tmp/fixture.bin",
+        keep_others_open: true,
+      }).keep_others_open,
+    ).toBe(true);
+  });
 });

@@ -3,7 +3,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { expect } from "vitest";
 import { toolContract } from "../../src/contracts/toolContracts.js";
 import { parseEvidence } from "../../src/domain/evidence.js";
-import type { BinarySession } from "../../src/application/binary/BinarySession.js";
+import type { BinarySessionPort } from "../../src/application/binary/BinarySessionPort.js";
 
 /** Verify the actual advertised schemas, retaining a private Ajv registry. */
 export const advertisedMcpToolSchemas = async (
@@ -31,7 +31,7 @@ export const assertRecordedMcpEvidence = (
     | "inspect_binary_layout"
     | "inspect_evm_interface",
   schemas: Awaited<ReturnType<typeof advertisedMcpToolSchemas>>,
-  session: BinarySession,
+  session: BinarySessionPort,
   expected: { readonly artifact: { readonly sha256: string } },
   confidence: ReturnType<typeof parseEvidence>["confidence"],
 ) => {

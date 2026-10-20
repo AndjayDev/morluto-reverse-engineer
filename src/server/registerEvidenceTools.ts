@@ -48,6 +48,22 @@ interface EvidenceToolRegistration {
     parameters: Readonly<Record<string, JsonValue>>,
     evidence: Evidence,
   ) => Result<Evidence, AnalysisError>;
+  /**
+   * Adapter-only selections that address a target and bound the wait.
+   *
+   * The routing handle and the wait budget belong to the adapter, not to the
+   * analysed program. The hook removes them from the parameters, so the
+   * provider and the Evidence record never see them, and reports the handle
+   * and the budget to the admission that routes the call.
+   */
+  readonly adapterSelections?: (
+    contract: ToolContract<Exclude<AnalysisOperation, "health">>,
+    input: Readonly<Record<string, JsonValue>>,
+  ) => {
+    readonly targetId?: string | undefined;
+    readonly waitMs: number | undefined;
+    readonly parameters: Readonly<Record<string, JsonValue>>;
+  };
 }
 
 /** Register provider-backed contracts that return atomic Evidence observations. */
@@ -61,10 +77,9 @@ export const registerEvidenceTools = (
       contract.name,
       toolRegistrationOptions(contract),
       async (input, context) => {
-        const ready = options.preflight?.(
-          contract.name,
-          jsonObjectSchema.parse(input),
-        );
+        const parsedInput = jsonObjectSchema.parse(input);
+        const selections = options.adapterSelections?.(contract, parsedInput);
+        const ready = options.preflight?.(contract.name, parsedInput);
         if (ready !== undefined && !ready.ok)
           return server.delivery.toCallToolResult(ready, contract);
         const admitted = await options.withAdmittedAnalysis(
@@ -81,7 +96,7 @@ export const registerEvidenceTools = (
               total: 1,
               message: "started",
             });
-            const parameters = jsonObjectSchema.parse(input);
+            const parameters = selections?.parameters ?? parsedInput;
             const executionParameters =
               options.parametersForExecution?.(contract.name, parameters) ??
               parameters;
@@ -150,6 +165,8 @@ export const registerEvidenceTools = (
               recorded,
             );
           },
+          selections?.targetId,
+          selections?.waitMs,
         );
         return admitted.ok
           ? admitted.value

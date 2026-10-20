@@ -1,4 +1,4 @@
-import type { BinarySession } from "../application/binary/BinarySession.js";
+import type { BinarySessionPort } from "../application/binary/BinarySessionPort.js";
 import type { Logger } from "pino";
 import { AnalysisError } from "../domain/analysisErrorBase.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
@@ -16,7 +16,7 @@ export const createShutdown = (input: {
   readonly handle: McpServerHandle;
   readonly closeAndroid?: () => Promise<void>;
   readonly closeOptionalProviders?: () => Promise<void>;
-  readonly session: BinarySession;
+  readonly session: BinarySessionPort;
   readonly dependencies: RuntimeDependencies;
   readonly serverLogger: Logger;
 }): {
@@ -35,7 +35,9 @@ export const createShutdown = (input: {
       : [{ close: input.closeOptionalProviders, closed: false }]),
     {
       close: async () => {
-        const closed = await session.close({ retainProviderDocuments: true });
+        const closed = await (session.closeAll?.({
+          retainProviderDocuments: true,
+        }) ?? session.close({ retainProviderDocuments: true }));
         if (!closed.ok) throw closed.error;
       },
       closed: false,

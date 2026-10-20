@@ -16,6 +16,9 @@ import type {
   AnalysisProvider,
 } from "../../src/application/AnalysisProvider.js";
 import { BinarySession } from "../../src/application/binary/BinarySession.js";
+import { BinaryTargetRegistry } from "../../src/application/binary/BinaryTargetRegistry.js";
+import type { BinaryTargetLimits } from "../../src/application/binary/BinaryTargetRegistry.js";
+import { InvestigationRecords } from "../../src/application/investigation/InvestigationRecords.js";
 import { SessionProviderRouter } from "../../src/application/binary/SessionProviderRouter.js";
 import { AnalysisProviderRegistry } from "../../src/application/binary/AnalysisProviderRegistry.js";
 import { OFFICIAL_TOOL_CONTRACTS } from "../../src/contracts/officialToolContracts.js";
@@ -119,6 +122,18 @@ export const createTestBinarySession = (
   options: TestBinarySessionOptions = {},
 ): BinarySession =>
   new BinarySession(createTestProviderRouter(provider, options));
+
+/** Create a multi-target registry with the same provider seam as the session. */
+export const createTestBinaryTargetRegistry = (
+  provider: AnalysisProvider | FixtureClientFactory,
+  options: TestBinarySessionOptions = {},
+  limits: Partial<BinaryTargetLimits> = {},
+): BinaryTargetRegistry =>
+  new BinaryTargetRegistry(
+    createTestProviderRouter(provider, options),
+    new InvestigationRecords(),
+    limits,
+  );
 
 /** Materialize two distinct targets for session lifecycle tests. */
 export const createBinarySessionTargets = async (): Promise<

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import type { AnySchema } from "ajv";
 
-import type { BinarySession } from "../../../src/application/binary/BinarySession.js";
+import type { BinarySessionPort } from "../../../src/application/binary/BinarySessionPort.js";
 import {
   JAVASCRIPT_FEATURE_TRACE_EXAMPLE,
   JAVASCRIPT_APPLICATION_VERSION_COMPARISON_EXAMPLE,
@@ -283,7 +283,7 @@ async function runInlineWorkflowScenarios(
 
 async function assertRejectedEvidenceReferences(
   client: Client,
-  session: BinarySession,
+  session: BinarySessionPort,
 ): Promise<void> {
   const wrongOperation = createEvidence(
     undefined,

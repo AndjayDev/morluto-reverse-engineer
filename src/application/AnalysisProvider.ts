@@ -35,6 +35,10 @@ export interface ExecutionOptions {
    * supplied it.
    */
   readonly selectorOrigin?: "provider";
+  /** Route to one registered target slot; absent addresses the current slot. */
+  readonly targetId?: string;
+  /** Bound how long a call waits for a starting target before reporting progress. */
+  readonly waitMs?: number;
 }
 
 /** Closed operations accepted by provider-backed analysis sessions. */

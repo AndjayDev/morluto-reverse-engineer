@@ -7,6 +7,7 @@ import { CLI_COMMANDS } from "../cliCommandNames.js";
 import { logCliCommand } from "../cliLogging.js";
 import type { Logger } from "pino";
 import {
+  assertCliAnalysisMode,
   directAnalysisOptionsFromCli,
   nativeOpenOptionFields,
 } from "./options.js";
@@ -81,8 +82,9 @@ const registerOverviewCommands = (
       // code is not replaced by the logged failure status.
       if (await routesToJavaScriptAnalysis(args.path, options))
         return withCommandCancellation((signal) =>
-          logCliCommand(logger, "analyze", () =>
-            runCliJavaScriptApplicationAnalysis(
+          logCliCommand(logger, "analyze", () => {
+            assertCliAnalysisMode(options["analysis-mode"]);
+            return runCliJavaScriptApplicationAnalysis(
               {
                 input_path: absoluteCallerPath(args.path),
                 integrity_policy:
@@ -92,8 +94,8 @@ const registerOverviewCommands = (
                   : { source_paths: options.sourcePath }),
               },
               signal,
-            ),
-          ),
+            );
+          }),
         );
       return logCliCommand(logger, "analyze", () => {
         if (options.sourcePath !== undefined)

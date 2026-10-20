@@ -260,6 +260,52 @@ Provider candidate facts describe possible providers, while top-level session
 capabilities describe the current route and `analysis_provider_binding` names the
 selected provider. Do not treat those scopes as interchangeable.
 
+## Open long analyses in the background
+
+`open_binary` blocks until the target is ready by default. A large binary can
+take minutes, and a blocked tool call keeps the turn open. When the import is
+slow, ask for a bounded wait instead of an unbounded block.
+
+- `analysis_mode: "background"` starts a server-owned job and returns at once.
+  The job survives the request that started it and the client that started it.
+- `analysis_mode: "auto"` waits up to `auto_background_after_ms` (default 120000) and then continues in the background. A cached target is ready inside
+  that window, so `auto` returns the finished target for a cache hit.
+- `wait_ms` on a target-bound analysis tool, or on `binary_session`, bounds how
+  long the call waits for a starting target. Default 180000, maximum 290000.
+  The live-session navigation tools (`current_address`, `current_procedure`,
+  `current_document`, `goto_address`, `list_bookmarks`, `list_documents`)
+  observe the provider session rather than the analysed program, so they take
+  no wait budget and report the state at once.
+- A call that finds the target still starting returns the retryable
+  `analysis_in_progress` error with the elapsed time. It is not a failure:
+  retry the same target, or raise `wait_ms` within its cap.
+- `binary_session` reports the job as `analysis: { state, mode, started_at,
+  elapsed_ms }`, with `state` one of `starting`, `ready`, `failed`, or
+  `cancelled`. Poll it instead of re-opening.
+
+Progress is elapsed time only. No provider streams a phase line into the
+session yet, so the state carries no percentage and none is invented.
+
+One server can hold several open targets. `open_binary` with
+`keep_others_open: true` adds a target instead of replacing the current one,
+and returns its opaque `target_id`. Pass that `target_id` to a later
+target-bound call to address it; without one, a call acts on the current
+target. An unknown or closed `target_id` returns `target_not_open` and never
+falls back to another target. `REA_MAX_OPEN_TARGETS` bounds how many targets
+stay open and `REA_MAX_CONCURRENT_ANALYSES` bounds how many starts overlap;
+a start beyond the second limit is queued, not refused.
+
+`close_binary` cancels a running job. A job that is still starting is aborted;
+the provider is released once the close gives up waiting for the start to
+unwind, so a cancelled analysis leaves no cache entry behind. A completed
+analysis is published to the project cache when the target closes normally. A
+close that cannot release its provider keeps ownership of it: the handle is
+reported as `retained_target_ids`, and closing it again retries the cleanup.
+
+The one-shot CLI cannot host a background job: it exits with the command. A
+CLI request for `analysis_mode: "background"` fails with
+`capability_unavailable`; `auto` runs in the foreground there.
+
 For a Ghidra startup timeout on a large native target, follow
 [deadline recovery](references/native-and-artifacts.md#ghidra-startup-deadline-recovery)
 before abandoning deep analysis or repeating the same cold import. The default

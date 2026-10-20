@@ -56,6 +56,50 @@ export class AnalysisResourceConstraintError extends AnalysisError {
   }
 }
 
+/** A caller selected a target handle that is not currently open. */
+export class AnalysisTargetNotOpenError extends AnalysisError {
+  readonly _tag = "AnalysisTargetNotOpenError";
+
+  constructor(
+    readonly operation: string,
+    readonly requestedTargetId: string,
+    readonly openTargetIds: readonly string[],
+  ) {
+    super(`Target ${requestedTargetId} is not open for ${operation}`, {
+      diagnostics: {
+        target_id: requestedTargetId,
+        open_target_ids: [...openTargetIds],
+      },
+    });
+  }
+}
+
+/**
+ * A bounded wait expired while the selected target was still starting.
+ *
+ * The error reports elapsed time only. No provider streams a phase line into
+ * the application layer yet, so the contract does not promise progress.
+ */
+export class AnalysisInProgressError extends AnalysisError {
+  readonly _tag = "AnalysisInProgressError";
+
+  constructor(
+    readonly operation: string,
+    readonly targetId: string,
+    readonly elapsedMs: number,
+  ) {
+    super(
+      `Analysis for target ${targetId} is still in progress after ${elapsedMs} ms`,
+      {
+        diagnostics: {
+          target_id: targetId,
+          elapsed_ms: elapsedMs,
+        },
+      },
+    );
+  }
+}
+
 /** Provider-neutral invalid analysis input or output at an application boundary. */
 export class AnalysisProtocolError extends AnalysisError {
   readonly _tag = "AnalysisProtocolError";

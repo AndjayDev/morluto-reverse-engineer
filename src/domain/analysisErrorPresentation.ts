@@ -6,6 +6,8 @@ import {
   AnalysisOutputError,
   AnalysisUnsupportedTargetError,
   AnalysisResourceConstraintError,
+  AnalysisTargetNotOpenError,
+  AnalysisInProgressError,
   AnalysisTimeoutError,
 } from "./analysisErrorCore.js";
 import { ArtifactOperationError } from "./artifactOperationError.js";
@@ -77,6 +79,10 @@ export const analysisErrorRemediationAction = (
               ? "Review the reported worker file-size limits and write failure. Retry with a sufficient file-size allowance for the evidence reply; REA retains tighter inherited limits."
               : "Review the reported worker memory limits and available host memory. Retry with sufficient memory or a smaller artifact; REA retains tighter inherited limits.")
     );
+  if (error instanceof AnalysisTargetNotOpenError)
+    return "Open the target again or pass one of details.open_target_ids. Target paths are never included in this error.";
+  if (error instanceof AnalysisInProgressError)
+    return "The target is still starting. Retry the same target or increase wait_ms within the 290000 ms cap.";
   if (
     error instanceof AnalysisTimeoutError &&
     error.remediationAction !== undefined
@@ -236,6 +242,8 @@ const STATIC_ERROR_CATEGORIES: Readonly<
   HopperCancelledError: "cancelled",
   AnalysisTimeoutError: "timeout",
   AnalysisResourceConstraintError: "resource_constraint",
+  AnalysisTargetNotOpenError: "unavailable",
+  AnalysisInProgressError: "timeout",
   HopperTimeoutError: "timeout",
   NoBinaryOpenError: "unavailable",
   BinaryTargetError: "unavailable",
@@ -246,6 +254,8 @@ export const analysisErrorUserMessage = (error: AnalysisError): string => {
   if (error instanceof AnalysisSnapshotMismatchError) return error.message;
   if (error instanceof AnalysisUnsupportedTargetError) return error.message;
   if (error instanceof AnalysisResourceConstraintError) return error.reason;
+  if (error instanceof AnalysisTargetNotOpenError)
+    return `Target ${error.requestedTargetId} is not open in this session.`;
   if (error instanceof AnalysisAccessDeniedError)
     return "Host filesystem permissions denied read access to the selected path.";
   if (error instanceof AnalysisArtifactChangedError)
@@ -491,6 +501,8 @@ const KNOWN_ERROR_TAGS = {
   AnalysisCancelledError: true,
   AnalysisTimeoutError: true,
   AnalysisResourceConstraintError: true,
+  AnalysisTargetNotOpenError: true,
+  AnalysisInProgressError: true,
   ProviderSelectionError: true,
   ProviderAdapterError: true,
   BrowserObservationError: true,

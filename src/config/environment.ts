@@ -10,6 +10,16 @@ import {
 } from "./ghidraLanguageOverride.js";
 import { ghidraDisabledAnalyzersSchema } from "./ghidraDisabledAnalyzers.js";
 import {
+  ghidraExistingProgramNameSchema,
+  ghidraExistingProjectPathSchema,
+} from "./ghidraExistingProject.js";
+import {
+  ghidraProjectCacheDirectorySchema,
+  ghidraProjectCacheMaxAgeDaysSchema,
+  ghidraProjectCacheMaxBytesSchema,
+  ghidraProjectCacheModeSchema,
+} from "./ghidraProjectCache.js";
+import {
   DEFAULT_GHIDRA_STARTUP_TIMEOUT_MS,
   DEFAULT_HOPPER_STARTUP_TIMEOUT_MS,
   DEFAULT_SWIFTC_COMPILE_TIMEOUT_MS,
@@ -18,6 +28,11 @@ import {
 import { mcpInputSchemaProfileSchema } from "./mcpInputSchemaProfile.js";
 import { mcpOutputSchemaProfileSchema } from "./mcpOutputSchemaProfile.js";
 import { mcpResponseBudgetSchema } from "./mcpResponseBudget.js";
+import {
+  DEFAULT_MAX_CONCURRENT_ANALYSES,
+  DEFAULT_MAX_OPEN_TARGETS,
+  binaryTargetLimitSchema,
+} from "./binaryTargetLimits.js";
 import { parseLoaderArgs, parseStringArray } from "./parsers.js";
 
 const environmentSchema = z.object({
@@ -25,6 +40,12 @@ const environmentSchema = z.object({
   REA_MCP_MAX_RESPONSE_BYTES: mcpResponseBudgetSchema.optional(),
   REA_MCP_INPUT_SCHEMA_PROFILE: mcpInputSchemaProfileSchema.optional(),
   REA_MCP_OUTPUT_SCHEMA_PROFILE: mcpOutputSchemaProfileSchema.optional(),
+  REA_MAX_OPEN_TARGETS: binaryTargetLimitSchema.default(
+    DEFAULT_MAX_OPEN_TARGETS,
+  ),
+  REA_MAX_CONCURRENT_ANALYSES: binaryTargetLimitSchema.default(
+    DEFAULT_MAX_CONCURRENT_ANALYSES,
+  ),
   REA_IDA_MCP_CONFIG: z
     .string()
     .min(1)
@@ -49,6 +70,10 @@ const environmentSchema = z.object({
   REA_GHIDRA_STARTUP_TIMEOUT_MS: providerStartupTimeoutSchema.default(
     DEFAULT_GHIDRA_STARTUP_TIMEOUT_MS,
   ),
+  REA_GHIDRA_AUTO_BACKGROUND_AFTER_MS:
+    providerStartupTimeoutSchema.default(120_000),
+  REA_BINARY_JOB_SETTLE_TIMEOUT_MS:
+    providerStartupTimeoutSchema.default(30_000),
   REA_HOPPER_STARTUP_TIMEOUT_MS: providerStartupTimeoutSchema.default(
     DEFAULT_HOPPER_STARTUP_TIMEOUT_MS,
   ),
@@ -63,6 +88,14 @@ const environmentSchema = z.object({
     .min(1)
     .refine(isAbsolute, "REA_GHIDRA_SEED_FILE must be absolute")
     .optional(),
+  REA_GHIDRA_EXISTING_PROJECT: ghidraExistingProjectPathSchema.optional(),
+  REA_GHIDRA_EXISTING_PROGRAM: ghidraExistingProgramNameSchema.optional(),
+  REA_GHIDRA_PROJECT_CACHE: ghidraProjectCacheModeSchema,
+  REA_GHIDRA_PROJECT_CACHE_DIR: ghidraProjectCacheDirectorySchema.optional(),
+  REA_GHIDRA_PROJECT_CACHE_MAX_BYTES:
+    ghidraProjectCacheMaxBytesSchema.optional(),
+  REA_GHIDRA_PROJECT_CACHE_MAX_AGE_DAYS:
+    ghidraProjectCacheMaxAgeDaysSchema.optional(),
   REA_ILSPY_CMD_PATH: z
     .string()
     .min(1)
@@ -106,6 +139,7 @@ type Environment = Omit<
   readonly loaderArgs: readonly string[];
   readonly referenceSecretPatterns: readonly string[];
 };
+export type { Environment };
 
 /** Parse individual settings before layered registration fragments are merged. */
 export const parseEnvironmentValues = (

@@ -16,7 +16,7 @@ import {
   type ProviderIdentity,
 } from "../../../src/application/AnalysisProvider.js";
 import { AnalysisProviderRegistry } from "../../../src/application/binary/AnalysisProviderRegistry.js";
-import type { BinarySession } from "../../../src/application/binary/BinarySession.js";
+import type { BinarySessionPort } from "../../../src/application/binary/BinarySessionPort.js";
 import { composeBinarySession } from "../../../src/application/binary/BinarySessionComposition.js";
 import { SessionProviderRouter } from "../../../src/application/binary/SessionProviderRouter.js";
 import { createAnalysisProfile } from "../../../src/domain/analysisProfile.js";
@@ -358,7 +358,7 @@ const auxiliaryProvider = (
 const selectableSession = (
   providers: readonly AnalysisProviderCandidate[],
   auxiliary?: AnalysisProvider,
-): BinarySession =>
+): BinarySessionPort =>
   composeBinarySession(
     new AnalysisProviderRegistry(providers),
     auxiliary === undefined ? [] : [auxiliary],
@@ -391,7 +391,7 @@ const databaseTarget = async (): Promise<string> => {
   return path;
 };
 
-const bindingStatus = async (session: BinarySession) =>
+const bindingStatus = async (session: BinarySessionPort) =>
   z
     .object({
       analysis_provider_binding: z.unknown(),

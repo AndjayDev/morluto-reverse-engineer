@@ -4,7 +4,7 @@ import { expect } from "vitest";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { composeBinarySession } from "../../../src/application/binary/BinarySessionComposition.js";
-import type { BinarySession } from "../../../src/application/binary/BinarySession.js";
+import type { BinarySessionPort } from "../../../src/application/binary/BinarySessionPort.js";
 import { AnalysisProviderRegistry } from "../../../src/application/binary/AnalysisProviderRegistry.js";
 import { parseConfig } from "../../../src/config/parseConfig.js";
 import type { JsonValue } from "../../../src/domain/jsonValue.js";
@@ -104,7 +104,7 @@ export const connectGhidraMcp = async (
   };
 };
 
-export const sessionEvidence = (session: BinarySession, value: unknown) => {
+export const sessionEvidence = (session: BinarySessionPort, value: unknown) => {
   const evidence = parseEvidence(value);
   expect(session.evidenceById(evidence.evidence_id)).toEqual(evidence);
   return evidence;

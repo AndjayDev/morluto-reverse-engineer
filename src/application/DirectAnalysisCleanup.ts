@@ -5,12 +5,12 @@ import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import { err, type Result } from "../domain/result.js";
 import type { AnalysisExecution } from "./AnalysisProvider.js";
-import type { BinarySession } from "./binary/BinarySession.js";
+import type { BinarySessionPort } from "./binary/BinarySessionPort.js";
 import { analysisErrorWithCleanupFailure } from "../domain/analysisErrorCleanup.js";
 
 /** Await one-shot cleanup and retain either the outcome or both failures. */
 export const withSessionCleanup = async <Value>(
-  session: BinarySession,
+  session: BinarySessionPort,
   operation: () => Promise<Value>,
   onCleanupFailure: (value: Value, error: AnalysisError) => Value,
 ): Promise<Value> => {

@@ -74,8 +74,10 @@ it.each(shutdownEvents)(
     let optionalCloseCalls = 0;
     let sessionCloseCalls = 0;
     const session = createManagedBinarySession();
-    const originalSessionClose = session.close.bind(session);
-    session.close = async (...args) => {
+    // The shutdown closes every open slot, so it owns the session through
+    // closeAll rather than through the current target's close.
+    const originalSessionClose = session.closeAll.bind(session);
+    session.closeAll = async (...args) => {
       sessionCloseCalls += 1;
       return originalSessionClose(...args);
     };
@@ -160,8 +162,8 @@ it("keeps shared provider owners open when the transport preparation barrier fai
   const events: string[] = [];
   let attempts = 0;
   const session = createManagedBinarySession();
-  const closeSession = session.close.bind(session);
-  session.close = async (...args) => {
+  const closeSession = session.closeAll.bind(session);
+  session.closeAll = async (...args) => {
     events.push("session");
     return closeSession(...args);
   };
@@ -214,8 +216,8 @@ it("joins concurrent shutdown events and retries only failed owners", async () =
   let sessionCloseCalls = 0;
   let releaseFirstClose: ((error: Error) => void) | undefined;
   const session = createManagedBinarySession();
-  const originalSessionClose = session.close.bind(session);
-  session.close = async (...args) => {
+  const originalSessionClose = session.closeAll.bind(session);
+  session.closeAll = async (...args) => {
     sessionCloseCalls += 1;
     return originalSessionClose(...args);
   };

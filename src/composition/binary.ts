@@ -1,7 +1,7 @@
 import { isAppleDispatchMetadataTarget } from "../domain/native/objcSwiftMetadata.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import type { AppConfig } from "../config/types.js";
-import type { BinarySession } from "../application/binary/BinarySession.js";
+import type { BinaryTargetRegistry } from "../application/binary/BinaryTargetRegistry.js";
 import { HopperProvider } from "../hopper/HopperProvider.js";
 import { GhidraProvider } from "../ghidra/GhidraProvider.js";
 import { IdaProvider } from "../ida/IdaProvider.js";
@@ -22,7 +22,7 @@ export const createBinarySession = (
   config: AppConfig,
   logger: Logger,
   selectedEnvironment: Readonly<NodeJS.ProcessEnv>,
-): BinarySession =>
+): BinaryTargetRegistry =>
   composeDeepBinarySession(config, logger, selectedEnvironment);
 
 /** Prefer byte-backed dispatch inspection while retaining deep symbol fallback. */
@@ -30,7 +30,7 @@ export const createNativeDispatchBinarySession = (
   config: AppConfig,
   logger: Logger,
   selectedEnvironment: Readonly<NodeJS.ProcessEnv>,
-): BinarySession =>
+): BinaryTargetRegistry =>
   composeDeepBinarySession(
     config,
     logger,
@@ -43,7 +43,7 @@ const composeDeepBinarySession = (
   logger: Logger,
   selectedEnvironment: Readonly<NodeJS.ProcessEnv>,
   inspection?: "inspect_native_dispatch_metadata",
-): BinarySession => {
+): BinaryTargetRegistry => {
   const environment = snapshotEnvironment(selectedEnvironment);
   const hopper = new HopperProvider(config, logger, environment);
   const ghidra = new GhidraProvider(config, logger, environment);
@@ -67,11 +67,17 @@ const composeDeepBinarySession = (
     auxiliaryDeclarations.map(
       (declaration) => new LazyAnalysisProvider(declaration),
     ),
+    {
+      maxOpenTargets: config.maxOpenTargets,
+      maxConcurrentAnalyses: config.maxConcurrentAnalyses,
+      autoBackgroundAfterMs: config.ghidraAutoBackgroundAfterMs,
+      jobSettleTimeoutMs: config.binaryJobSettleTimeoutMs,
+    },
   );
 };
 
 /** Compose an execution-free managed session without native provider selection. */
-export const createManagedBinarySession = (): BinarySession =>
+export const createManagedBinarySession = (): BinaryTargetRegistry =>
   composeBinarySession(new AnalysisProviderRegistry([]), [
     new ManagedStaticProvider(),
   ]);
@@ -80,7 +86,7 @@ export const createManagedBinarySession = (): BinarySession =>
 export const createArtifactBinarySession = (
   selectedEnvironment: Readonly<NodeJS.ProcessEnv>,
   platform: NodeJS.Platform = process.platform,
-): Promise<BinarySession> =>
+): Promise<BinaryTargetRegistry> =>
   import("../artifacts/ArtifactProvider.js").then(({ ArtifactProvider }) =>
     composeBinarySession(new AnalysisProviderRegistry([]), [
       new ArtifactProvider(
@@ -94,7 +100,7 @@ export const createArtifactBinarySession = (
 export const createNativeBinarySession = (
   selectedEnvironment: Readonly<NodeJS.ProcessEnv>,
   platform: NodeJS.Platform = process.platform,
-): Promise<BinarySession> =>
+): Promise<BinaryTargetRegistry> =>
   import("../native/NativeMacOSProvider.js").then(({ NativeMacOSProvider }) =>
     composeBinarySession(new AnalysisProviderRegistry([]), [
       new NativeMacOSProvider(

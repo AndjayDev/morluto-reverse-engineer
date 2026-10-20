@@ -1,7 +1,7 @@
 import type { AppConfig } from "../config/types.js";
 import type { parseConfig } from "../config/parseConfig.js";
 import type { Logger } from "pino";
-import type { BinarySession } from "./binary/BinarySession.js";
+import type { BinarySessionPort } from "./binary/BinarySessionPort.js";
 
 /** Configuration and one-shot session factories supplied by the production boundary. */
 export interface DirectAnalysisDependencies {
@@ -10,21 +10,21 @@ export interface DirectAnalysisDependencies {
   readonly createBinarySession: (
     config: AppConfig,
     logger: Logger,
-  ) => BinarySession | Promise<BinarySession>;
+  ) => BinarySessionPort | Promise<BinarySessionPort>;
   /** Prefer byte-backed dispatch inspection while preserving explicit selection. */
   readonly createNativeDispatchBinarySession: (
     config: AppConfig,
     logger: Logger,
-  ) => BinarySession | Promise<BinarySession>;
+  ) => BinarySessionPort | Promise<BinarySessionPort>;
   /** Create an artifact-only session without selecting native analysis engines. */
   readonly createArtifactBinarySession: () =>
-    | BinarySession
-    | Promise<BinarySession>;
+    | BinarySessionPort
+    | Promise<BinarySessionPort>;
   /** Create a native utility session without selecting deep analysis engines. */
   readonly createNativeBinarySession: () =>
-    | BinarySession
-    | Promise<BinarySession>;
+    | BinarySessionPort
+    | Promise<BinarySessionPort>;
   readonly createManagedBinarySession: () =>
-    | BinarySession
-    | Promise<BinarySession>;
+    | BinarySessionPort
+    | Promise<BinarySessionPort>;
 }

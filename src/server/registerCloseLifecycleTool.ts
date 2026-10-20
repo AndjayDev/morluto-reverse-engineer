@@ -81,7 +81,14 @@ export const registerCloseLifecycleTool = ({
         // Enqueue the lifecycle transition before awaiting progress transport so
         // a later open request cannot overtake this close.
         const closing = logToolExecution(logger, closeContract.name, () =>
-          closeWithResources(() => session.close({ progress })),
+          closeWithResources(() =>
+            session.close({
+              progress,
+              ...(input.target_id === undefined
+                ? {}
+                : { targetId: input.target_id }),
+            }),
+          ),
         );
         await reportLifecycleStart(progress, closeContract.name);
         const closed = await closing;
@@ -92,6 +99,9 @@ export const registerCloseLifecycleTool = ({
         closeWithResources(() =>
           session.closeWithSnapshot(snapshotPath, input.overwrite, {
             progress,
+            ...(input.target_id === undefined
+              ? {}
+              : { targetId: input.target_id }),
           }),
         ),
       );

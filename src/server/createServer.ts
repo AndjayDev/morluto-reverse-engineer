@@ -852,7 +852,9 @@ const createSessionRecorders = (
           session.evidenceForAnalysis?.(evidenceId) ??
           session.evidenceById(evidenceId),
   activeTarget:
-    session === undefined ? undefined : () => session.activeTarget(),
+    session === undefined
+      ? undefined
+      : (targetId?: string) => session.activeTarget(targetId),
   recordEvidence:
     session === undefined
       ? undefined

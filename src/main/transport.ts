@@ -1,7 +1,7 @@
 import { createAndroidAnalysisProvider } from "../composition/android.js";
 import type { AndroidAnalysisPort } from "../application/android/AndroidAnalysisPort.js";
 
-import type { BinarySession } from "../application/binary/BinarySession.js";
+import type { BinarySessionPort } from "../application/binary/BinarySessionPort.js";
 import type { Logger } from "pino";
 import { createServer } from "../server/createServer.js";
 import { StreamableHttpListenError } from "../server/http/streamableHttpListenError.js";
@@ -30,7 +30,7 @@ type ClosableOptionalProvider = {
 /** Start the injected transport (stdio or streamable HTTP) around one shared session. */
 export const startMcpTransport = async (
   dependencies: RuntimeDependencies,
-  session: BinarySession,
+  session: BinarySessionPort,
   serverContext: ServerContext,
 ): Promise<
   | {
@@ -151,7 +151,7 @@ export const startMcpTransport = async (
       serverCleanup,
       optionalProviderCleanup,
     ] = await Promise.allSettled([
-      session.close(),
+      session.closeAll?.() ?? session.close(),
       closeAndroid(),
       closeServers(),
       closeOptionalProviders(),

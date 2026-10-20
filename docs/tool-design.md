@@ -48,6 +48,18 @@ satisfy. A plan without execution does not establish runtime behavior.
 - Use strict inputs with explicit target identity and required fields. Preserve
   meaningful target, action, capture, and output choices; remove ignored options
   and repeated permission declarations.
+- When one server can hold several targets, return an opaque `target_id` from
+  the open call and accept it only as an optional selector on target-bound
+  tools. Omit means the current target so existing callers stay valid. Validate
+  the handle once at admission, keep it out of provider parameters and display
+  identity, and never expose paths in an unknown-handle error. Evidence remains
+  bound to the target digest, not the routing handle. An explicit handle never
+  falls back to another target: an unknown or closed handle reports
+  `target_not_open` rather than another target's facts.
+- Add a wait budget only to the tools that can wait on a starting target, and
+  consume it only where the tool's own schema declares it. A field on every
+  tool schema is paid on every call, and an adapter that strips an argument its
+  contract does not accept hides a later parameter of the same name.
 - Return the requested facts inline with artifact/provider identity, source
   locations, Evidence references, coverage, and relevant confidence and
   limitations. Use supported selection, summaries or views when they answer

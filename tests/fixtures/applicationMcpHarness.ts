@@ -2,21 +2,21 @@ import { ok as resultOk } from "../../src/domain/result.js";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 
 import { createTestBinarySession } from "./binarySession.js";
-import type { BinarySession } from "../../src/application/binary/BinarySession.js";
+import type { BinarySessionPort } from "../../src/application/binary/BinarySessionPort.js";
 import { observed } from "./analysisExecution.js";
 import { createServer } from "../../src/server/createServer.js";
 
 /** Owned MCP SDK session shared by application workflow scenarios. */
 export interface ApplicationMcpHarness {
   readonly client: Client;
-  readonly session: BinarySession;
+  readonly session: BinarySessionPort;
   readonly close: () => Promise<void>;
 }
 
 /** Connect application workflows through the production MCP registration. */
 export async function createApplicationMcpHarness(
   options: {
-    readonly session?: BinarySession;
+    readonly session?: BinarySessionPort;
     readonly serverOptions?: Parameters<typeof createServer>[1];
   } = {},
 ): Promise<ApplicationMcpHarness> {

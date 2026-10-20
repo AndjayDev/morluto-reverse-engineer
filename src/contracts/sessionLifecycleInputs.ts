@@ -13,6 +13,14 @@ const snapshotPathSchema = absoluteLocalPathStringSchema.describe(
   "Absolute local filesystem path for the analysis snapshot; relative paths are rejected.",
 );
 
+/** Opaque handle for one open target; never a path or digest. */
+const binaryTargetIdSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Opaque target handle returned by open_binary. Omit to address the current target.",
+  );
+
 /** Caller-supplied analysis target path; must name the target absolutely. */
 const binaryTargetPathSchema = absoluteLocalPathStringSchema.describe(
   "Absolute local filesystem path for the analysis target; relative paths are rejected.",
@@ -39,6 +47,27 @@ export const openBinaryInputSchema = z
       ),
     provider_id: analysisProviderSelectorSchema.optional(),
     snapshot_path: snapshotPathSchema.optional(),
+    keep_others_open: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Keep existing open targets and add this one instead of replacing the current target. Default false preserves single-target replacement.",
+      ),
+    analysis_mode: z
+      .enum(["foreground", "background", "auto"])
+      .default("foreground")
+      .describe(
+        "foreground blocks until ready (default). background starts a server-owned job and returns analysis_started. auto waits up to auto_background_after_ms, then continues in background.",
+      ),
+    auto_background_after_ms: z
+      .number()
+      .int()
+      .min(1)
+      .max(2_147_483_647)
+      .optional()
+      .describe(
+        "Auto-mode promotion threshold in milliseconds; defaults to REA_GHIDRA_AUTO_BACKGROUND_AFTER_MS or 120000.",
+      ),
   })
   .superRefine((value, context) => {
     const pairing = rawBinarySelectionError({
@@ -69,4 +98,5 @@ export const openBinaryInputSchema = z
 export const closeBinaryInputSchema = z.strictObject({
   snapshot_path: snapshotPathSchema.optional(),
   overwrite: z.boolean().default(false),
+  target_id: binaryTargetIdSchema.optional(),
 });

@@ -8,7 +8,7 @@ import {
 } from "../../src/application/DirectAnalysis.js";
 import type { DirectAnalysisDependencies } from "../../src/application/DirectAnalysisDependencies.js";
 import type { NativeToolName } from "../../src/contracts/native/nativeToolContracts.js";
-import type { BinarySession } from "../../src/application/binary/BinarySession.js";
+import type { BinarySessionPort } from "../../src/application/binary/BinarySessionPort.js";
 import { observed } from "../fixtures/analysisExecution.js";
 import { createAnalysisProfile } from "../../src/domain/analysisProfile.js";
 import {
@@ -20,7 +20,7 @@ const recordingFactories = (
   failure?: Error,
   profile?: ReturnType<typeof createAnalysisProfile>,
 ) => {
-  const sessions: BinarySession[] = [];
+  const sessions: BinarySessionPort[] = [];
   let clientsClosed = 0;
   const createSession = () => {
     const session = createTestBinarySession(

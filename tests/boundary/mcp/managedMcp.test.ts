@@ -14,7 +14,7 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 import { AnalysisProviderRegistry } from "../../../src/application/binary/AnalysisProviderRegistry.js";
 import { composeBinarySession } from "../../../src/application/binary/BinarySessionComposition.js";
-import type { BinarySession } from "../../../src/application/binary/BinarySession.js";
+import type { BinarySessionPort } from "../../../src/application/binary/BinarySessionPort.js";
 import { MANAGED_NATIVE_VERIFICATION_EXAMPLE } from "../../../src/contracts/managed/managedWorkflowExamples.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
 import { ManagedStaticProvider } from "../../../src/dotnet/ManagedStaticProvider.js";
@@ -199,7 +199,7 @@ it("opens a managed PE and executes the managed static provider through MCP", as
 
 const verifyManagedCatalogAndNativeWorkflow = async (
   client: Client,
-  session: BinarySession,
+  session: BinarySessionPort,
   outputAssertion: ManagedOutputAssertion,
 ): Promise<void> => {
   expect(outputAssertion.names).toEqual(

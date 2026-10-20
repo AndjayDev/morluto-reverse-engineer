@@ -457,10 +457,63 @@ parent for another invocation.
 ## Identity and discovery
 
 `binary_session` reports the active package, server, SDK, and negotiated
-protocol details. `rea doctor` separately inspects supported JSON/TOML client
-registrations, reports their command vectors as aligned, stale, missing, or
-invalid, and keeps live-server state `unknown` unless the active connection
-supplies identity.
+protocol details. It also reports `target_id` for the addressed target and
+`open_target_ids` for every open target. `rea doctor` separately inspects
+supported JSON/TOML client registrations, reports their command vectors as
+aligned, stale, missing, or invalid, and keeps live-server state `unknown` unless
+the active connection supplies identity.
+
+### Multiple open targets
+
+`open_binary` returns an opaque `target_id`. The default replace behaviour is
+unchanged: opening another target closes the current one. Pass
+`keep_others_open: true` to add a target instead. `REA_MAX_OPEN_TARGETS`
+(default 4) bounds the open slots and refused opens use the `capacity` resource
+constraint. `REA_MAX_CONCURRENT_ANALYSES` (default 2) bounds simultaneous
+starts; additional starts wait in FIFO order. The cap covers background starts
+exactly as it covers foreground opens, so a server never starts more provider
+processes than the limit allows.
+
+Every official analysis tool accepts an optional `target_id`. Omit it to address
+the current target, which keeps single-target transcripts compatible. An unknown
+or closed handle returns `target_not_open` with the open ids, never target
+paths. An explicit handle never falls back to another target: the provider
+identity, analysis profile, and snapshot of a handle that is not open are not
+reported. Each slot keeps its own provider process, lifecycle lock, cancellation
+scope, and analysis snapshot; Evidence records remain session-wide and stay
+bound to each target's digest. `close_binary` accepts `target_id`; without one it
+closes the current target.
+
+### Background analysis
+
+`open_binary` accepts `analysis_mode`. `foreground` (default) blocks until the
+provider is ready. `background` starts a server-owned job and returns at once
+with `analysis: {state: "starting", mode: "background", started_at,
+elapsed_ms}`; a cancelled request stops only its own wait, never the job.
+`auto` waits up to `auto_background_after_ms` (default
+`REA_GHIDRA_AUTO_BACKGROUND_AFTER_MS`, 120 000 ms) and then returns the same
+`starting` state while the job continues. A cancelled wait answers
+`cancelled` on the first open and on a re-open of the same running job.
+
+Target-bound analysis tools and `binary_session` accept `wait_ms` (default
+180 000, maximum 290 000). A call addressed to a still-starting target waits up
+to that budget, then fails with the retryable `analysis_in_progress` code and
+elapsed time. The live-session navigation tools (`current_address`,
+`current_procedure`, `current_document`, `goto_address`, `list_bookmarks`, and
+`list_documents`) observe the provider session rather than the analysed
+program, so they declare no wait budget. `binary_session` instead reports the
+current state. `analysis` states are `starting`, `ready`, `failed`, and
+`cancelled`; a finished job stops counting elapsed time. The state and the
+error report elapsed time only: no provider streams a phase line into the
+session, so no progress value is invented. `close_binary` aborts the job
+through the existing close path, waits for the interrupted start to unwind, and
+an incomplete close still publishes nothing. A job ends with its MCP server
+process.
+
+The one-shot CLI cannot own a background job because it exits with the command.
+`rea analyze --analysis-mode background` fails with `capability_unavailable`
+and names the MCP alternative; `--analysis-mode auto` runs in the foreground
+there.
 
 `tools/list` returns the complete canonical tool inventory, including tools that
 are currently unavailable. Opening or closing a target or observing a provider
