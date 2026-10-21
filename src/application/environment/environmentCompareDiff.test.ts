@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { JsonValue } from "../../domain/jsonValue.js";
 import { compareAnswers } from "./environmentCompareDiff.js";
-import { IdMap } from "./environmentCompareIds.js";
+import { IdMap, learnIds } from "./environmentCompareIds.js";
 
 const compare = (
   live: unknown,
@@ -150,12 +150,9 @@ describe("ids two collections reuse", () => {
     map.learn(101, 2, "/api/authors");
     const answer = (body: JsonValue) => ({ status: 200, body });
     expect(
-      compareAnswers(
-        answer({ id: 101 }),
-        answer({ id: 2 }),
-        map,
-        "/api/authors",
-      ).differences,
+      compareAnswers(answer({ id: 101 }), answer({ id: 2 }), map, {
+        scope: "/api/authors",
+      }).differences,
     ).toEqual([]);
     expect(
       compareAnswers(answer({ book_id: 101 }), answer({ book_id: 2 }), map)
@@ -163,5 +160,27 @@ describe("ids two collections reuse", () => {
     ).toEqual([
       { category: "value", pointer: "/book_id", live: "101", env: "2" },
     ]);
+  });
+});
+
+describe("wrapped answers", () => {
+  it("compares the identity of an entity inside an envelope within the call's collection", () => {
+    const map = new IdMap();
+    map.learn(101, 1, "/api/books");
+    learnIds(
+      { data: [{ id: 101, name: "Bob" }] },
+      { data: [{ id: 2, name: "Bob" }] },
+      map,
+      { heldIds: new Set(), scope: "/api/authors", entityAt: "/data" },
+    );
+    expect(map.env(101, "/api/authors")).toBe(2);
+    expect(
+      compareAnswers(
+        { status: 200, body: { data: { id: 101, name: "Bob" } } },
+        { status: 200, body: { data: { id: 2, name: "Bob" } } },
+        map,
+        { scope: "/api/authors", at: "/data" },
+      ).differences,
+    ).toEqual([]);
   });
 });

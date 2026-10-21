@@ -106,10 +106,13 @@ class Differ {
     large_bodies: 0,
   };
 
-  /** `scope` is the collection the call names, whose own mapping its answer's entity identities compare by. */
+  /** The answer's own entities: where they sit (the object, or the array of them, at `at`) and the collection the call names, whose own mapping their identities compare by. */
   constructor(
     readonly map: IdMap,
-    readonly scope?: string,
+    readonly entity: {
+      readonly scope: string | undefined;
+      readonly at: string;
+    },
   ) {}
 
   add(difference: Difference): void {
@@ -132,7 +135,7 @@ class Differ {
       const mapped = this.map.env(
         live,
         at.own === true && key !== undefined && IDENTITY_FIELD.test(key)
-          ? this.scope
+          ? this.entity.scope
           : undefined,
       );
       if (mapped !== undefined && String(mapped) === String(env)) {
@@ -171,12 +174,8 @@ class Differ {
     });
   }
 
-  array(
-    live: JsonValue[],
-    env: JsonValue[],
-    pointer: string,
-    own = false,
-  ): void {
+  array(live: JsonValue[], env: JsonValue[], pointer: string): void {
+    const own = pointer === this.entity.at;
     if (this.sameItems(live, env, pointer)) return;
     const pairs = pairElements(live, env);
     if (live.length !== env.length || pairs.length !== live.length)
@@ -222,6 +221,7 @@ class Differ {
     pointer: string,
     own = false,
   ): void {
+    const self = own || pointer === this.entity.at;
     // An object keyed by ids compares each member under the environment's key.
     const envKey = (key: string): string => {
       const mapped = this.map.env(key);
@@ -241,7 +241,7 @@ class Differ {
         });
       else {
         matched.add(other);
-        this.value(value, env[other]!, child, { key, own });
+        this.value(value, env[other]!, child, { key, own: self });
       }
     }
     for (const [key, value] of Object.entries(env))
@@ -253,18 +253,17 @@ class Differ {
         });
   }
 
-  /** `own` marks the answer's own entities, at its root or as items of a root array; their children are not. */
+  /** `own` marks an item of the entity array, or with `key` a field of an own entity; a field's own children are not. */
   value(
     live: JsonValue,
     env: JsonValue,
     pointer: string,
     at: { readonly key?: string; readonly own?: boolean } = {},
   ): void {
-    const own = at.own === true && at.key === undefined;
     if (Array.isArray(live) && Array.isArray(env))
-      this.array(live, env, pointer, own);
+      this.array(live, env, pointer);
     else if (isObject(live) && isObject(env))
-      this.object(live, env, pointer, own);
+      this.object(live, env, pointer, at.own === true && at.key === undefined);
     else if (
       Array.isArray(live) ||
       Array.isArray(env) ||
@@ -294,9 +293,9 @@ export const compareAnswers = (
   live: Answer,
   env: Answer,
   map: IdMap,
-  scope?: string,
+  entity: { readonly scope?: string; readonly at?: string } = {},
 ): { readonly differences: Difference[]; readonly normalised: Normalised } => {
-  const differ = new Differ(map, scope);
+  const differ = new Differ(map, { scope: entity.scope, at: entity.at ?? "" });
   if (live.status !== env.status)
     differ.add({
       category: "status",
@@ -305,6 +304,6 @@ export const compareAnswers = (
       env: String(env.status),
     });
   if (live.cut === true) differ.normalised.large_bodies += 1;
-  else differ.value(live.body, env.body, "", { own: true });
+  else differ.value(live.body, env.body, "");
   return { differences: differ.differences, normalised: differ.normalised };
 };

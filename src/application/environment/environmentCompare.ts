@@ -37,6 +37,7 @@ import {
   parseCaptureEvidence,
   recordedExchange,
   replayedBody,
+  type EnvironmentManifestTool,
   type EnvironmentSource,
   type ReplayedBody,
 } from "./environmentSource.js";
@@ -193,6 +194,20 @@ const emptyNormalised = (): Normalised => ({
 const isSuccess = (status: number | null): boolean =>
   status !== null && status >= 200 && status < 300;
 
+/** Where a call's answer holds its own entities, and the collection they belong to: a read view's entity or list pointer, a write's response pointer, else the root. */
+const entityOf = (
+  run: ProbeRun,
+  tool: EnvironmentManifestTool,
+): { readonly scope: string; readonly at: string } => {
+  const view = run.store?.state.views.get(tool.name);
+  const plan = run.store?.state.writes.get(tool.name);
+  const at =
+    view?.shape === "item" || view?.shape === "list"
+      ? view.pointer
+      : (plan?.response?.pointer ?? plan?.observation?.pointer ?? "");
+  return { scope: collectionScope(tool), at };
+};
+
 const fromState = (answer: ReplayResult): boolean =>
   (answer as Partial<StateAnswer>).state?.source === "state";
 
@@ -342,18 +357,15 @@ const compareStep = (
     status: answered.value.status,
     body: envBody(run, answered.value),
   };
+  const entity = entityOf(run, call.tool);
   // Another call's recording holds other entities, whose ids would map wrongly and, the first pairing winning, for good.
   if (answersCall(run, call, args, answered.value))
     learnIds(live.body, env.body, run.map, {
       heldIds: heldIds(run.store),
-      scope: collectionScope(call.tool),
+      scope: entity.scope,
+      entityAt: entity.at,
     });
-  const compared = compareAnswers(
-    live,
-    env,
-    run.map,
-    collectionScope(call.tool),
-  );
+  const compared = compareAnswers(live, env, run.map, entity);
   for (const key of NORMALISED_KEYS)
     run.normalised[key] += compared.normalised[key];
   const differences = [...compared.differences];

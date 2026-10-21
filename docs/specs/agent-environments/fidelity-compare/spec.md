@@ -31,7 +31,8 @@ credentials and resets it between sequences.
     string values are unique on each side and shared between them;
   - identifier fields (`id`, `uuid`, `guid`, and names ending in `_id`, `Id`, `ID`, `_uuid` or `Uuid`) of paired objects,
     and of the two answers to the same call, map the live value to the environment's value; a create's two answers map
-    the new ids. The `id`, `uuid` or `guid` of the answer's own entities also maps within the collection the call names,
+    the new ids. The `id`, `uuid` or `guid` of the answer's own entities (at the read view's entity or list location, a
+    write's response location, or else the root) also maps within the collection the call names,
     since two collections can reuse a live id for different entities. Outside identifier fields, a string maps when the
     environment's state holds it as an id, and the keys of two objects keyed by ids map when their values pair (keys
     that partly overlap only when they are digits, UUIDs or their entries' identities, and every value pairs);

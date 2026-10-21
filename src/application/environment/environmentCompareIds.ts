@@ -210,22 +210,24 @@ const learnKeyedEntries = (
   return true;
 };
 
-/**
- * Learn identifier pairs from the live and environment answers to one call: identifier fields, and strings the state holds
- * as ids, of objects that pair, at any depth. The identity fields of the answer's own entities, at its root or as items of
- * a root array, are also learned under `scope`, the collection the call names.
- */
-export const learnIds = (
+/** What learning reads besides the two values: the map it adds to, the ids the state holds, and where the answer's own entities sit. */
+interface LearnContext {
+  readonly map: IdMap;
+  readonly heldIds: ReadonlySet<string>;
+  readonly scope: string | undefined;
+  /** JSON pointer of the answer's own entity, or of the array holding its entities. */
+  readonly entityAt: string;
+}
+
+const childPointer = (at: string, key: string | number): string =>
+  `${at}/${String(key).replaceAll("~", "~0").replaceAll("/", "~1")}`;
+
+const learnAt = (
   live: JsonValue | undefined,
   env: JsonValue | undefined,
-  map: IdMap,
-  known: {
-    /** Ids the environment's state holds, which mark a string outside identifier fields as an id. */
-    readonly heldIds: ReadonlySet<string>;
-    readonly scope?: string;
-  },
+  context: LearnContext,
+  place: { readonly at: string; readonly own: boolean },
 ): void => {
-  const { heldIds, scope } = known;
   if (Array.isArray(live) && Array.isArray(env)) {
     // Items paired only by position stand for the same entities only when nothing could pair them by a key and the
     // arrays are the same length; otherwise a filtered or reordered list would teach wrong ids.
@@ -236,11 +238,15 @@ export const learnIds = (
     )
       return;
     for (const [left, right] of paired.pairs)
-      learnIds(live[left], env[right], map, known);
+      learnAt(live[left], env[right], context, {
+        at: childPointer(place.at, left),
+        own: place.at === context.entityAt,
+      });
     return;
   }
   if (!isObject(live) || !isObject(env)) return;
-  if (learnKeyedEntries(live, env, map, heldIds)) return;
+  if (learnKeyedEntries(live, env, context.map, context.heldIds)) return;
+  const own = place.own || place.at === context.entityAt;
   for (const [key, value] of Object.entries(live)) {
     if (!Object.hasOwn(env, key)) continue;
     const other = env[key];
@@ -251,12 +257,48 @@ export const learnIds = (
       (ID_FIELD.test(key) ||
         (typeof value === "string" &&
           typeof other === "string" &&
-          heldIds.has(other)))
+          context.heldIds.has(other)))
     )
-      map.learn(value, other, IDENTITY_FIELD.test(key) ? scope : undefined);
-    else learnIds(value, other, map, { heldIds });
+      context.map.learn(
+        value,
+        other,
+        own && IDENTITY_FIELD.test(key) ? context.scope : undefined,
+      );
+    else
+      learnAt(value, other, context, {
+        at: childPointer(place.at, key),
+        own: false,
+      });
   }
 };
+
+/**
+ * Learn identifier pairs from the live and environment answers to one call: identifier fields, and strings the state holds
+ * as ids, of objects that pair, at any depth. The identity fields of the answer's own entities, the object or the items of
+ * the array at `entityAt` (the root by default), are also learned under `scope`, the collection the call names.
+ */
+export const learnIds = (
+  live: JsonValue | undefined,
+  env: JsonValue | undefined,
+  map: IdMap,
+  known: {
+    /** Ids the environment's state holds, which mark a string outside identifier fields as an id. */
+    readonly heldIds: ReadonlySet<string>;
+    readonly scope?: string;
+    readonly entityAt?: string;
+  },
+): void =>
+  learnAt(
+    live,
+    env,
+    {
+      map,
+      heldIds: known.heldIds,
+      scope: known.scope,
+      entityAt: known.entityAt ?? "",
+    },
+    { at: "", own: false },
+  );
 
 /** A value with every string or number equal to a mapped live identifier replaced by the environment's value, in its own type. */
 export const translateValue = (value: JsonValue, map: IdMap): JsonValue => {
