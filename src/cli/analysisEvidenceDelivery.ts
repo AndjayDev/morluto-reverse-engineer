@@ -129,7 +129,7 @@ export const publishCliAnalysisEvidence = async (
           ).values(),
         ]),
         absoluteCallerPath(evidenceOutput),
-        false,
+        "never",
         resources,
         signal,
       );
