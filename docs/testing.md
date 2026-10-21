@@ -156,7 +156,27 @@ rejection without a reason. That cleanup stays owned until a later close or
 call releases it. Another server does not open while the cleanup remains, and
 a cleanup that already succeeded is not run again. Pass
 `mcpCall` when a case needs its own server, environment, or lifecycle. CLI
-cases still start a fresh process.
+cases for that helper share one compiled CLI process per child environment.
+The first case pays process startup; later cases reuse the loaded runtime.
+The process restarts when the environment changes, after 32 commands, or when
+the worker reports a resident set of at least 1 GiB. A fatal worker failure
+or a broken session frame retires that process and waits for it to exit before
+the next command starts.
+`cli.run` still starts a fresh process, including stdin and explicit deadlines.
+`runFileCli` uses the file session for commands that have neither. Go binary,
+IL2CPP metadata, and dylib-resolution commands use that session. File teardown
+stops the shared CLI process, including startup still in flight, and does not
+open another after close.
+`exportedFunctionBindingsCli.test.ts` keeps its own compiled CLI parity
+process for the file and still compares that process's JSON command results
+with the MCP session. A command that does not respond is rejected. That
+process stays owned until it exits, and another process does not start while
+it remains. A process that stays running after SIGKILL remains owned so a
+later close can retry. Closing the session reports a failure when the process
+does not exit after stdin closes, once the child has been stopped.
+`applicationWorkflowCli.test.ts` keeps one compiled CLI process for its JSON
+commands, including a non-zero status whose stdout is still a JSON document,
+and closes that process after the file.
 
 The Apple artifact verifier step shares a job-temporary bytecode cache among
 its fresh CLI/MCP children via `REA_ARTIFACT_NODE_COMPILE_CACHE`. The artifact
@@ -272,7 +292,23 @@ termination. Simulated Windows controls do not establish native Windows behavior
 Native process-ownership controls distinguish start identity, zombie lifecycle,
 current parent/group relation, and token-read evidence. Retain generation-bound
 candidates through smaller lineage observations, table omissions, reparenting,
-group changes, and failed cleanup retries. A readable token with unavailable
+group changes, and failed cleanup retries. Identityless exit-refresh controls
+cover a replacement row that is not linked to the prior descendant set: a
+matching token on its own group is signaled, a foreign or absent token is not,
+an unreadable live token stays unresolved, a replacement that appears only in
+the confirmation table is still token-checked, a group discovered during
+revalidation is signaled before cleanup succeeds, a member that changes groups
+during confirmation is signaled in its new group, a PID first seen with a
+foreign token is read again on the confirmation table, a PID whose token was
+already read is read again even when its parent and group return to the
+pre-exit values, a pre-existing PID is read again when its parent or group
+changes, an unchanged pre-existing row that was never token-read stays unread,
+an unbounded confirmation
+chain stays unresolved, lineage reads a row again when its launcher-tree
+membership changes, a cached lineage token is read again on the next refresh, an initial descendant whose token already matched is read again on a later refresh, the launcher is read again on that refresh and a missing, unowned, or relation-changed launcher PID stays unavailable, a descendant absent from the latest refresh is omitted,
+a group that reappears after it was processed is revalidated once, a further
+reappearance stays unresolved, lineage publishes one row per PID, and lineage does not publish a
+verified empty descendant list while that row remains unexamined. A readable token with unavailable
 identity stays unresolved. Native UID facts, rather than an earlier process-table
 row, determine whether a token denial concerns another user. Darwin tests compile
 the helper and exercise snapshot growth, absence, lifecycle, and UID observations;
@@ -485,9 +521,15 @@ reports even when a shard fails, uploads available diagnostics, and writes the
 slowest files to the workflow summary. Partial reports are marked diagnostic
 only. Failed, cancelled, or missing selected shards still fail the required gate,
 and aggregate coverage thresholds remain enforced in full qualification.
-Only successful complete full-tier merges publish the small `test-timings` artifact, with
-checkout-relative paths; the build job downloads that artifact for the sequencer
-instead of the coverage/JUnit bundle. Timing weights come from Vitest module
+Only a successful complete merge on the default branch publishes shard history,
+and only from a push, schedule, or manual run. Fast runs publish
+`test-timings-fast`. Full runs publish `test-timings-full`. Pull requests do not
+publish it: the lookup reads one unpaginated artifact page, and pull-request
+artifacts would crowd out the default branch. The build job downloads the
+artifact that matches its tier, so fast shards use durations measured without
+coverage and full shards keep coverage-weighted durations. A tier with no
+qualifying artifact leaves history unset. The download is that small
+checkout-relative timing file, not the coverage/JUnit bundle. Timing weights come from Vitest module
 diagnostics and include tests and hooks, worker preparation, environment,
 imports, and setup. Import timings already include transform waits, which are
 not added again. The weights describe file costs under the measured worker and
@@ -1354,11 +1396,22 @@ catalog, and managed-conformance metadata. Each shard still installs the locked
 dependencies and runs its assigned tests; full qualification enables coverage. It no longer
 regenerates the same metadata independently.
 
-The build job also finds an available `test-timings` artifact from a successful
-trusted default-branch scheduled or manual qualification and includes that same
-report in each shard's snapshot. The bounded lookup verifies the artifact's
-producer; newer schedules that reuse qualification without producing timings do
-not hide the last full run's artifact.
+The build job finds the newest trusted timing artifact for its tier
+(`test-timings-fast` or `test-timings-full`) from a successful default-branch
+push, schedule, or manual CI run, and includes that same report in each shard's
+snapshot. The bounded lookup verifies the producer. Pull-request runs and other
+branches are not producers. A tier with no qualifying artifact leaves history
+unset, and Vitest uses its own assignment. A later schedule that reuses
+qualification without uploading timings leaves the previous artifact in place.
+
+On 2026-10-21 the newest full history was run
+`39545047294`, recorded before compiled-CLI session reuse. Fast run
+`39552964873` packed its eight built shards from that history, and those shard
+jobs executed for 319–591 seconds. Replaying that run's file durations through
+the sequencer's two-worker schedule balances every shard at about 404 seconds
+of file time. The same replay with the stale history weights leaves the slowest
+shard near 547 seconds and the fastest near 293. That spread is file-schedule
+time, not runner queue, which is why each tier keeps its own history.
 CI assigns discovered files by historical duration, with a deterministic
 fallback weight for new files, rather than dividing only by file count.
 Each file keeps its full duration on one worker. Extra workers overlap other
