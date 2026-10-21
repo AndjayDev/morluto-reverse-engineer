@@ -162,7 +162,6 @@ describe("ids two collections reuse", () => {
     });
     expect(map.env(101, "/api/authors")).toBe(2);
     expect(map.env(101)).toBe(1);
-    expect(map.pairs(101, 2)).toBe(true);
     expect(
       translatePath("/api/authors/101", map, (index) =>
         index === 2 ? "/api/authors" : undefined,
@@ -189,5 +188,18 @@ describe("objects keyed by ids that overlap", () => {
       { heldIds: new Set() },
     );
     expect(partial.size).toBe(0);
+  });
+});
+
+describe("ordinary objects whose fields overlap", () => {
+  it("does not read their fields as ids, even when every value pairs", () => {
+    const map = new IdMap();
+    learnIds(
+      { current: { name: "A" }, previous: { name: "B" } },
+      { current: { name: "B" }, next: { name: "A" } },
+      map,
+      { heldIds: new Set() },
+    );
+    expect(map.size).toBe(0);
   });
 });

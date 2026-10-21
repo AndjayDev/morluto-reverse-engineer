@@ -1,4 +1,5 @@
 import type { JsonObject } from "../../domain/analysisView/environmentStateRules.js";
+import { isUuid } from "../../domain/analysisView/environmentStateWriteValues.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import type { ProbeToolCall } from "./environmentCompareMatch.js";
 
@@ -13,7 +14,7 @@ const isScalarId = (value: JsonValue | undefined): value is string | number =>
   (typeof value === "number" && Number.isFinite(value));
 
 /** Entity identity fields, whose values an answer's own collection scopes. */
-const IDENTITY_FIELD = /^(id|uuid|guid)$/u;
+export const IDENTITY_FIELD = /^(id|uuid|guid)$/u;
 
 /**
  * Live identifier values and the environment's values they stand for, in both directions: one map for the whole probe,
@@ -59,18 +60,6 @@ export class IdMap {
       (scope === undefined
         ? undefined
         : this.#scoped.get(scope)?.get(liveKey)) ?? this.#toEnv.get(liveKey)
-    );
-  }
-
-  /** Whether a live value was paired with this environment value, in the probe's map or any collection's. */
-  pairs(live: string | number, env: string | number): boolean {
-    const liveKey = String(live);
-    const envKey = String(env);
-    const known = (mapped: string | number | undefined) =>
-      mapped !== undefined && String(mapped) === envKey;
-    return (
-      known(this.#toEnv.get(liveKey)) ||
-      [...this.#scoped.values()].some((scoped) => known(scoped.get(liveKey)))
     );
   }
 
@@ -160,9 +149,26 @@ export const pairElements = (
   env: readonly JsonValue[],
 ): Array<readonly [number, number]> => pairing(live, env).pairs;
 
+/** Whether an object's keys are evidently identifiers: digits or UUIDs, or each the identity of the entry it keys. */
+const keyedByIds = (
+  entries: readonly (readonly [string, JsonValue])[],
+): boolean =>
+  entries.every(
+    ([key, value]) =>
+      /^\d+$/u.test(key) ||
+      isUuid(key) ||
+      (isObject(value) &&
+        Object.entries(value).some(
+          ([field, held]) =>
+            IDENTITY_FIELD.test(field) &&
+            isScalarId(held) &&
+            String(held) === key,
+        )),
+  );
+
 /**
- * Two objects keyed by ids, not sharing every key, whose object values pair by a natural key: each pair maps the live key
- * to the environment's and is learned from in turn. Returns whether the objects were read that way.
+ * Two objects keyed by ids, whose object values pair by a natural key: each pair maps the live key to the environment's
+ * and is learned from in turn. Returns whether the objects were read that way.
  */
 const learnKeyedEntries = (
   live: JsonObject,
@@ -185,10 +191,14 @@ const learnKeyedEntries = (
     liveEntries.map(([, value]) => value),
     envEntries.map(([, value]) => value),
   );
-  // Re-seeded ids can reuse a key for another entity, so keys that overlap are read as ids only when every entry pairs.
+  // Re-seeded ids can reuse a key for another entity, but ordinary fields overlap too: keys that overlap are read as ids
+  // only when they evidently are ids and every entry pairs.
   if (
     paired.by !== "key" ||
-    (shared > 0 && paired.pairs.length !== liveEntries.length)
+    (shared > 0 &&
+      (paired.pairs.length !== liveEntries.length ||
+        !keyedByIds(liveEntries) ||
+        !keyedByIds(envEntries)))
   )
     return false;
   for (const [left, right] of paired.pairs) {

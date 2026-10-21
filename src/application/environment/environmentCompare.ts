@@ -40,7 +40,11 @@ import {
   type EnvironmentSource,
   type ReplayedBody,
 } from "./environmentSource.js";
-import type { ReplayArguments, ReplayResult } from "./environmentReplay.js";
+import {
+  selectsRecordedLine,
+  type ReplayArguments,
+  type ReplayResult,
+} from "./environmentReplay.js";
 import { prepareServedState, servedCatalog } from "./environmentState.js";
 import type { StateAnswer } from "./environmentStateAnswer.js";
 import { EnvironmentStateStore } from "./environmentStateStore.js";
@@ -48,7 +52,11 @@ import {
   environmentToolAnswer,
   type EnvironmentToolAnswer,
 } from "./environmentToolAnswer.js";
-import type { EnvironmentToolDefinition } from "./environmentTools.js";
+import {
+  environmentToolArguments,
+  type EnvironmentToolDefinition,
+} from "./environmentTools.js";
+import { same } from "../../domain/analysisView/environmentStateRules.js";
 
 /** One probe capture file: its label for the report and its parsed JSON. */
 export interface CompareProbeInput {
@@ -129,15 +137,12 @@ const requestBody = (
     : text;
 };
 
-/** An answer's body with empty text as no body, which both sides spell differently: a recording of nothing replays as "". */
-const bodyOf = (body: JsonValue): JsonValue => (body === "" ? null : body);
-
-/** The application's body as an environment answer carries it: JSON, text, or null when there is none or it is empty. */
+/** The application's body as an environment answer carries it: JSON, text, or null when there is none or it is empty text. */
 const liveBody = (body: ReplayedBody): JsonValue => {
   if (body.kind === "json") return body.value;
   if (body.kind === "none") return null;
   if (body.kind === "base64") return body.encoded;
-  return bodyOf(body.text);
+  return body.text === "" ? null : body.text;
 };
 
 /** A body over the replay limit, text or bytes: only a prefix is known, so only the status compares. */
@@ -188,10 +193,42 @@ const emptyNormalised = (): Normalised => ({
 const isSuccess = (status: number | null): boolean =>
   status !== null && status >= 200 && status < 300;
 
-/** Whether the environment answered this call itself, from the state or a recording of exactly these arguments, rather than replaying another call's recording. */
-const answersCall = (answer: ReplayResult): boolean =>
-  answer.replay.exact_match ||
+const fromState = (answer: ReplayResult): boolean =>
   (answer as Partial<StateAnswer>).state?.source === "state";
+
+/** The environment's body as the application's is read: a replayed recording of empty text, unlike a JSON empty string, is no body. */
+const envBody = (run: ProbeRun, answer: ReplayResult): JsonValue => {
+  if (answer.body !== "" || fromState(answer)) return answer.body;
+  const exchange = run.source.exchanges.get(answer.replay.record_ordinal);
+  return exchange !== undefined && replayedBody(exchange).kind === "json"
+    ? answer.body
+    : null;
+};
+
+/**
+ * Whether the environment answered this call itself: from its state, or from a recording of exactly this call, every
+ * recorded query value supplied and the body it sent, rather than replaying another call's recording.
+ */
+const answersCall = (
+  run: ProbeRun,
+  call: ProbeToolCall,
+  args: Readonly<Record<string, JsonValue>>,
+  answer: ReplayResult,
+): boolean => {
+  if (fromState(answer)) return true;
+  const exchange = run.source.exchanges.get(answer.replay.record_ordinal);
+  if (
+    !answer.replay.exact_match ||
+    exchange === undefined ||
+    !selectsRecordedLine(call.tool, exchange, args)
+  )
+    return false;
+  const body = environmentToolArguments(call.tool).body;
+  const sent = body === undefined ? undefined : args[body];
+  return (
+    sent === undefined || same(run.recordedBodies.get(exchange.ordinal), sent)
+  );
+};
 
 /** A served tool's input check: the first problem with a call's arguments, or undefined. */
 type InputCheck = (args: ReplayArguments) => string | undefined;
@@ -210,6 +247,9 @@ const inputCheck = (definition: EnvironmentToolDefinition): InputCheck => {
 };
 
 interface ProbeRun {
+  readonly source: EnvironmentSource;
+  /** The request body of each capture record, by ordinal, that a replayed answer's call is compared with. */
+  readonly recordedBodies: ReadonlyMap<number, JsonValue | undefined>;
   readonly answer: EnvironmentToolAnswer;
   readonly store: EnvironmentStateStore | undefined;
   /** The tools the environment offers, by name, with their input checks. */
@@ -300,15 +340,20 @@ const compareStep = (
   if (!answered.ok) return refusedWith(answered.error.message);
   const env: Answer = {
     status: answered.value.status,
-    body: bodyOf(answered.value.body),
+    body: envBody(run, answered.value),
   };
   // Another call's recording holds other entities, whose ids would map wrongly and, the first pairing winning, for good.
-  if (answersCall(answered.value))
+  if (answersCall(run, call, args, answered.value))
     learnIds(live.body, env.body, run.map, {
       heldIds: heldIds(run.store),
       scope: collectionScope(call.tool),
     });
-  const compared = compareAnswers(live, env, run.map);
+  const compared = compareAnswers(
+    live,
+    env,
+    run.map,
+    collectionScope(call.tool),
+  );
   for (const key of NORMALISED_KEYS)
     run.normalised[key] += compared.normalised[key];
   const differences = [...compared.differences];
@@ -407,6 +452,19 @@ export const compareEnvironment = (input: {
       inputCheck(definition),
     ]),
   );
+  const recorded = parseCaptureEvidence(
+    operation,
+    input.captureValue,
+    "manifest",
+  );
+  const recordedBodies = new Map(
+    recorded.ok
+      ? recorded.value.records.map((record) => [
+          record.ordinal,
+          requestBody(record),
+        ])
+      : [],
+  );
   const probes: CompareProbeReport[] = [];
   for (const [index, probe] of input.probes.entries()) {
     // A probe's request bodies are its call arguments, which a replay projection of a browser capture drops.
@@ -428,6 +486,8 @@ export const compareEnvironment = (input: {
     const store =
       state === undefined ? undefined : new EnvironmentStateStore(state);
     const run: ProbeRun = {
+      source,
+      recordedBodies,
       answer: environmentToolAnswer(source, store),
       store,
       served,

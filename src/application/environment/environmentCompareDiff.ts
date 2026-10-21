@@ -6,6 +6,7 @@ import {
 } from "../../domain/analysisView/environmentStateWriteValues.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import {
+  IDENTITY_FIELD,
   pairElements,
   translateValue,
   type IdMap,
@@ -105,19 +106,36 @@ class Differ {
     large_bodies: 0,
   };
 
-  constructor(readonly map: IdMap) {}
+  /** `scope` is the collection the call names, whose own mapping its answer's entity identities compare by. */
+  constructor(
+    readonly map: IdMap,
+    readonly scope?: string,
+  ) {}
 
   add(difference: Difference): void {
     this.differences.push(difference);
   }
 
-  scalar(live: JsonValue, env: JsonValue, pointer: string, key?: string): void {
+  scalar(
+    live: JsonValue,
+    env: JsonValue,
+    pointer: string,
+    at: { readonly key?: string; readonly own?: boolean } = {},
+  ): void {
     if (live === env) return;
+    const { key } = at;
     if (
       (typeof live === "string" || typeof live === "number") &&
       (typeof env === "string" || typeof env === "number")
     ) {
-      if (this.map.pairs(live, env)) {
+      // An entity's own identity compares within the call's collection; any other id by the probe's mapping.
+      const mapped = this.map.env(
+        live,
+        at.own === true && key !== undefined && IDENTITY_FIELD.test(key)
+          ? this.scope
+          : undefined,
+      );
+      if (mapped !== undefined && String(mapped) === String(env)) {
         this.normalised.ids += 1;
         return;
       }
@@ -153,7 +171,12 @@ class Differ {
     });
   }
 
-  array(live: JsonValue[], env: JsonValue[], pointer: string): void {
+  array(
+    live: JsonValue[],
+    env: JsonValue[],
+    pointer: string,
+    own = false,
+  ): void {
     if (this.sameItems(live, env, pointer)) return;
     const pairs = pairElements(live, env);
     if (live.length !== env.length || pairs.length !== live.length)
@@ -169,7 +192,9 @@ class Differ {
     )
       this.add({ category: "order", pointer });
     for (const [left, right] of pairs)
-      this.value(live[left]!, env[right]!, `${pointer}/${String(left)}`);
+      this.value(live[left]!, env[right]!, `${pointer}/${String(left)}`, {
+        own,
+      });
   }
 
   /** Arrays of scalars holding the same items in another order differ only in order, as sets an application returns unordered do. */
@@ -191,7 +216,12 @@ class Differ {
     return true;
   }
 
-  object(live: JsonObject, env: JsonObject, pointer: string): void {
+  object(
+    live: JsonObject,
+    env: JsonObject,
+    pointer: string,
+    own = false,
+  ): void {
     // An object keyed by ids compares each member under the environment's key.
     const envKey = (key: string): string => {
       const mapped = this.map.env(key);
@@ -211,7 +241,7 @@ class Differ {
         });
       else {
         matched.add(other);
-        this.value(value, env[other]!, child, key);
+        this.value(value, env[other]!, child, { key, own });
       }
     }
     for (const [key, value] of Object.entries(env))
@@ -223,10 +253,18 @@ class Differ {
         });
   }
 
-  value(live: JsonValue, env: JsonValue, pointer: string, key?: string): void {
+  /** `own` marks the answer's own entities, at its root or as items of a root array; their children are not. */
+  value(
+    live: JsonValue,
+    env: JsonValue,
+    pointer: string,
+    at: { readonly key?: string; readonly own?: boolean } = {},
+  ): void {
+    const own = at.own === true && at.key === undefined;
     if (Array.isArray(live) && Array.isArray(env))
-      this.array(live, env, pointer);
-    else if (isObject(live) && isObject(env)) this.object(live, env, pointer);
+      this.array(live, env, pointer, own);
+    else if (isObject(live) && isObject(env))
+      this.object(live, env, pointer, own);
     else if (
       Array.isArray(live) ||
       Array.isArray(env) ||
@@ -239,7 +277,7 @@ class Differ {
         live: shown(live),
         env: shown(env),
       });
-    else this.scalar(live, env, pointer, key);
+    else this.scalar(live, env, pointer, at);
   }
 }
 
@@ -256,8 +294,9 @@ export const compareAnswers = (
   live: Answer,
   env: Answer,
   map: IdMap,
+  scope?: string,
 ): { readonly differences: Difference[]; readonly normalised: Normalised } => {
-  const differ = new Differ(map);
+  const differ = new Differ(map, scope);
   if (live.status !== env.status)
     differ.add({
       category: "status",
@@ -266,6 +305,6 @@ export const compareAnswers = (
       env: String(env.status),
     });
   if (live.cut === true) differ.normalised.large_bodies += 1;
-  else differ.value(live.body, env.body, "");
+  else differ.value(live.body, env.body, "", { own: true });
   return { differences: differ.differences, normalised: differ.normalised };
 };

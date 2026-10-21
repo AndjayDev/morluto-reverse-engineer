@@ -148,6 +148,8 @@ describe("what the comparison translates and learns", () => {
       ["GET", "/api/authors/2", BOB],
       ["GET", "/api/ping", ""],
       ["POST", "/api/books/search", [FIRST_BOOK], 200, { q: "First" }],
+      ["POST", "/api/tags/search", [{ id: 1 }], 200, { q: "first" }],
+      ["GET", "/api/motd", '""'],
     ]),
   );
   const extraSource = environmentServeSource(extra);
@@ -188,10 +190,26 @@ describe("what the comparison translates and learns", () => {
     expect(step?.differences[0]?.env).toContain("Invalid arguments");
   });
 
-  it("agrees on an empty response however each side spells it", () => {
+  it("agrees on an empty response however each side spells it, and keeps a JSON empty string", () => {
     expect(compareExtra([["GET", "/api/ping", ""]]).results[0]?.equal).toBe(
       true,
     );
+    expect(compareExtra([["GET", "/api/motd", '""']]).results[0]?.equal).toBe(
+      true,
+    );
+  });
+
+  it("learns ids from a replayed recording only of the same call, body included", () => {
+    expect(
+      compareExtra([
+        ["POST", "/api/tags/search", [{ id: 102 }], 200, { q: "second" }],
+      ]).ids_mapped,
+    ).toBe(0);
+    expect(
+      compareExtra([
+        ["POST", "/api/tags/search", [{ id: 102 }], 200, { q: "first" }],
+      ]).ids_mapped,
+    ).toBe(1);
   });
 
   it("compares a large binary body only by status, as it does large text", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { JsonValue } from "../../domain/jsonValue.js";
 import { compareAnswers } from "./environmentCompareDiff.js";
 import { IdMap } from "./environmentCompareIds.js";
 
@@ -139,5 +140,28 @@ describe("scalar sets of mapped ids", () => {
       { category: "order", pointer: "/ids" },
     ]);
     expect(compared.normalised.ids).toBe(2);
+  });
+});
+
+describe("ids two collections reuse", () => {
+  it("compares an entity's own id within the call's collection and any other id by the probe's mapping", () => {
+    const map = new IdMap();
+    map.learn(101, 1, "/api/books");
+    map.learn(101, 2, "/api/authors");
+    const answer = (body: JsonValue) => ({ status: 200, body });
+    expect(
+      compareAnswers(
+        answer({ id: 101 }),
+        answer({ id: 2 }),
+        map,
+        "/api/authors",
+      ).differences,
+    ).toEqual([]);
+    expect(
+      compareAnswers(answer({ book_id: 101 }), answer({ book_id: 2 }), map)
+        .differences,
+    ).toEqual([
+      { category: "value", pointer: "/book_id", live: "101", env: "2" },
+    ]);
   });
 });
