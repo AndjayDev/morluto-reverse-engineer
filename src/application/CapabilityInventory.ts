@@ -416,6 +416,7 @@ const workflowAvailabilityFor = ({
     name === "inspect_il2cpp_metadata" ||
     name === "inspect_model_artifact" ||
     name === "inspect_rust_binary" ||
+    name === "inspect_unreal_pak" ||
     name === "inspect_electron_fuses"
   )
     return { reason: "available", remediation: null };
