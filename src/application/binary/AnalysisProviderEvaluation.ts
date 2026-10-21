@@ -14,6 +14,7 @@ import type {
   AnalysisProviderBoundClientFactory,
   AnalysisProfileResolutionOptions,
   AnalysisProviderCandidate,
+  ProviderIdentity,
 } from "../AnalysisProvider.js";
 import type { AnalysisProviderCandidateStatus } from "./AnalysisProviderRegistry.js";
 import { ProviderAdapterError } from "../../domain/providerAdapterError.js";
@@ -68,6 +69,7 @@ export const evaluateAnalysisProviderCandidate = async (
             candidate,
             status: {
               ...status,
+              eligibility: "ineligible" as const,
               targetSupport: {
                 status: "unsupported" as const,
                 code: "target_format_unsupported" as const,
@@ -111,7 +113,7 @@ export const evaluateAnalysisProviderCandidate = async (
       );
     return ok({
       candidate,
-      status,
+      status: eligibleStatus(status, profile.provider),
       profile,
       ...(resolved.value.createClient === undefined
         ? {}
@@ -132,6 +134,29 @@ export const evaluateAnalysisProviderCandidate = async (
 const signalIsAborted = (signal: AbortSignal | undefined): boolean =>
   signal?.aborted === true;
 
+/**
+ * Attribute an eligible candidate to the identity its profile resolved.
+ *
+ * An adapter may declare an unresolved version and resolve the concrete one only
+ * while probing. The profile is the fact that settled the identity, so every
+ * eligible candidate must report that identity here — including the candidates
+ * of a `selection_required` target, where no provider is bound yet and the
+ * caller compares them. Every capability the provider published must carry the
+ * same identity, because the reported route and its descriptors are one fact.
+ */
+const eligibleStatus = (
+  status: AnalysisProviderCandidateStatus,
+  provider: ProviderIdentity,
+): AnalysisProviderCandidateStatus => ({
+  ...status,
+  provider: structuredClone(provider),
+  eligibility: "eligible",
+  capabilities: status.capabilities.map((capability) => ({
+    ...capability,
+    provider: structuredClone(provider),
+  })),
+});
+
 const rejectedProfile = (
   candidate: AnalysisProviderCandidate,
   status: AnalysisProviderCandidateStatus,
@@ -141,6 +166,7 @@ const rejectedProfile = (
   candidate,
   status: {
     ...status,
+    eligibility: "ineligible",
     availability: {
       status: "unavailable",
       code: "version_unresolved",

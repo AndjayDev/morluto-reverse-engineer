@@ -348,11 +348,13 @@ Those settings still fail a selected provider and the audit-wide result. A
 skill-only report leaves them informational.
 
 Follow the remediation for the failed check. If a native target has several
-available providers, choose one with `--provider` on the CLI or `provider_id`
-on `open_binary`. A `capability_unavailable` failure carries
-`details.selection_reason`: `ambiguous` asks you to choose from
-`details.candidate_ids`, while `provider_unavailable` asks you to repair the
-selected engine. See [provider selection](cli.md#choose-a-provider).
+eligible providers, REA binds none and reports
+`analysis_provider_selection_state: "selection_required"`; choose one with
+`--provider` on the CLI or `provider_id` on `open_binary` and reopen the same
+target. A deep operation attempted before that decision fails with
+`details.selection_reason: "ambiguous"` and the candidate IDs, while
+`provider_unavailable` asks you to repair the selected engine. See
+[provider selection](cli.md#choose-a-provider).
 
 ### Linux owned-process prerequisite
 

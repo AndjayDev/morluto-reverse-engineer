@@ -46,7 +46,37 @@ const statusSchema = z.object({
   capabilities: z
     .array(providerCapabilitySet)
     .transform(expandProviderCapabilities),
+  analysis_provider_selection_state: z
+    .enum(["bound", "unbound", "selection_required"])
+    .nullable()
+    .optional(),
+  analysis_provider_candidates: z
+    .array(
+      z.object({
+        provider: z.object({ id: z.string().min(1) }),
+        eligibility: z.enum(["eligible", "ineligible", "unevaluated"]),
+        capabilities: z.array(providerCapabilitySet).optional(),
+      }),
+    )
+    .optional(),
 });
+
+/** One eligible candidate and the operations it declared as available. */
+type SelectionCandidate = {
+  readonly providerId: string;
+  /** `undefined` when the reported status omitted this candidate's capabilities. */
+  readonly operations: ReadonlySet<string> | undefined;
+};
+
+/**
+ * Deep-provider selection facts that change what an unavailable deep operation
+ * means. A target admitted without a binding must not be reported as a missing
+ * provider installation: the providers exist and the caller only has to choose.
+ */
+type SelectionContext = {
+  readonly required: boolean;
+  readonly eligible: readonly SelectionCandidate[];
+};
 
 type ToolAvailabilityReason = "available" | ToolUnavailabilityReason;
 
@@ -109,6 +139,7 @@ type AvailabilityContext = {
   readonly targetFormat: string | undefined;
   readonly descriptors: ReadonlyMap<string, ProviderDescriptor>;
   readonly policy: AvailabilityPolicy;
+  readonly selection: SelectionContext;
 };
 
 type EnhancedContractName = Extract<
@@ -237,6 +268,25 @@ export const buildCapabilityInventory = (
   const descriptors = new Map<string, ProviderDescriptor>(
     status.capabilities.map((descriptor) => [descriptor.operation, descriptor]),
   );
+  // An unbound target whose selection is pending has no deep descriptors, so
+  // every deep operation must distinguish "choose a provider" from "no provider",
+  // and must advise only providers that can run the operation being asked for.
+  const selection: SelectionContext = {
+    required: status.analysis_provider_selection_state === "selection_required",
+    eligible: (status.analysis_provider_candidates ?? [])
+      .filter(({ eligibility }) => eligibility === "eligible")
+      .map((candidate) => ({
+        providerId: candidate.provider.id,
+        operations:
+          candidate.capabilities === undefined
+            ? undefined
+            : new Set(
+                expandProviderCapabilities(candidate.capabilities)
+                  .filter(({ available }) => available)
+                  .map(({ operation }) => operation),
+              ),
+      })),
+  };
   return TOOL_CONTRACTS.map((contract): ToolAvailability => {
     const availability = availabilityFor({
       name: contract.name,
@@ -246,6 +296,7 @@ export const buildCapabilityInventory = (
       targetFormat: status.format,
       descriptors,
       policy,
+      selection,
     });
     const clientRequirements = clientRequirementsFor(
       contract.name,
@@ -359,6 +410,7 @@ const availabilityFor = (context: AvailabilityContext): Availability => {
       NAVIGATION_CONTEXT_MODES,
       "current_selection",
       context.descriptors,
+      context.selection,
     );
   const javascriptApplication = javascriptApplicationAvailability(context);
   if (javascriptApplication !== null) return javascriptApplication;
@@ -729,8 +781,10 @@ const providerAvailability = ({
   descriptors,
   kind,
   name,
+  selection,
 }: AvailabilityContext): Availability => {
-  if (kind === "enhanced") return composedAvailability(name, descriptors);
+  if (kind === "enhanced")
+    return composedAvailability(name, selection, descriptors);
   const descriptor = descriptors.get(name);
   if (
     descriptor === undefined &&
@@ -739,12 +793,17 @@ const providerAvailability = ({
       kind === "native-provider")
   )
     return { reason: "available", remediation: null };
-  if (descriptor === undefined)
+  if (descriptor === undefined) {
+    const pending = selection.required
+      ? selectionRequiredAvailability(selection, [name])
+      : undefined;
+    if (pending !== undefined) return pending;
     return {
       reason: "provider_missing",
       remediation:
         "Install or configure a provider that declares this operation.",
     };
+  }
   return descriptor.available
     ? { reason: "available", remediation: null }
     : {
@@ -754,8 +813,46 @@ const providerAvailability = ({
       };
 };
 
+/**
+ * Report a pending deep-provider choice as its own reason.
+ *
+ * The providers are installed, available, and target-compatible; only the
+ * binding is missing, so telling the caller to install or configure a provider
+ * would send it to fix a condition that does not hold.
+ *
+ * Advice must also be resolvable. Callers pass the requirement groups the current
+ * route cannot satisfy, and only candidates that declared a source for every one
+ * of those groups are offered. A group the route already covers — including
+ * through an auxiliary provider — needs nothing from the candidate. When no
+ * eligible candidate can run what remains, the choice is not the blocker and
+ * this returns `undefined` so the caller reports the missing capability instead
+ * of sending the caller to pick a provider that cannot help.
+ */
+const selectionRequiredAvailability = (
+  { eligible }: SelectionContext,
+  requirements: readonly (string | readonly string[])[],
+): Availability | undefined => {
+  const providerIds = eligible
+    .filter(
+      ({ operations }) =>
+        operations === undefined ||
+        requirements.every((requirement) =>
+          typeof requirement === "string"
+            ? operations.has(requirement)
+            : requirement.some((operation) => operations.has(operation)),
+        ),
+    )
+    .map(({ providerId }) => providerId);
+  if (providerIds.length === 0) return undefined;
+  return {
+    reason: "provider_selection_required",
+    remediation: `Reopen the target with open_binary and provider_id set to one of: ${providerIds.join(", ")}.`,
+  };
+};
+
 const composedAvailability = (
   name: string,
+  selection: SelectionContext,
   descriptors: ReadonlyMap<string, ProviderDescriptor>,
 ): Availability => {
   if (
@@ -774,14 +871,17 @@ const composedAvailability = (
         requirements.modes,
         requirements.defaultMode,
         descriptors,
+        selection,
       )
-    : composedAvailabilityFor(requirements, descriptors).availability;
+    : composedAvailabilityFor(requirements, descriptors, selection)
+        .availability;
 };
 
 /** Evaluate source groups once so discovery and missing-operation facts agree. */
 const composedAvailabilityFor = (
   requirements: CompositionRequirements,
   descriptors: ReadonlyMap<string, ProviderDescriptor>,
+  selection?: SelectionContext,
 ): {
   readonly availability: Availability;
   readonly missingOperations: readonly AnalysisOperation[];
@@ -808,6 +908,20 @@ const composedAvailabilityFor = (
   const missingOperations = [
     ...new Set(unmet.flatMap((group) => group.operations)),
   ];
+  // A pending choice is the actionable answer whenever one candidate supplies
+  // everything the current route cannot. Requirements the route already
+  // satisfies are not part of the ask, and an unavailable auxiliary declaration
+  // does not make the host incapable when a candidate offers an alternative
+  // source for that same requirement group.
+  const pending =
+    selection?.required === true && unmet.length > 0
+      ? selectionRequiredAvailability(
+          selection,
+          unmet.map(({ operations }) => operations),
+        )
+      : undefined;
+  if (pending !== undefined)
+    return { availability: pending, missingOperations };
   // Preserve the existing admission rule: report an undeclared prerequisite
   // before an unhealthy declaration, in requirement order within each class.
   const undeclared = unmet.find((group) => group.unavailable === undefined);
@@ -845,11 +959,13 @@ const availabilityForModes = (
   declarations: readonly AvailabilityMode[],
   defaultMode: string | undefined,
   descriptors: ReadonlyMap<string, ProviderDescriptor>,
+  selection?: SelectionContext,
 ): Availability => {
   const modeResults: AvailabilityModeResult[] = declarations.map((mode) => {
     const { availability, missingOperations } = composedAvailabilityFor(
       mode.requirements,
       descriptors,
+      selection,
     );
     if (availability.reason === "available")
       return {
@@ -925,6 +1041,10 @@ const availabilityFailurePriority = (
     case "provider_unavailable":
       return 1;
     case "provider_missing":
+    // A pending choice is the same class as a missing provider for navigation:
+    // no descriptor exists for the current route. Its own remediation is
+    // preserved below, because the action the caller must take is different.
+    case "provider_selection_required":
       return 2;
     default:
       return 3;

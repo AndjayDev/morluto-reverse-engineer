@@ -59,6 +59,13 @@ const status = (
       readonly reason: string | null;
       readonly availability_code?: "unsupported_host";
     }[];
+    readonly selectionState?: "bound" | "unbound" | "selection_required";
+    readonly candidates?: readonly {
+      readonly id: string;
+      readonly eligibility: "eligible" | "ineligible" | "unevaluated";
+      /** Operations this candidate declared as available. */
+      readonly operations: readonly string[];
+    }[];
   } = {},
 ) => ({
   open: options.open ?? false,
@@ -83,6 +90,35 @@ const status = (
             })),
           },
         ],
+  ...(options.selectionState === undefined
+    ? {}
+    : { analysis_provider_selection_state: options.selectionState }),
+  ...(options.candidates === undefined
+    ? {}
+    : {
+        analysis_provider_candidates: options.candidates.map((candidate) => ({
+          provider: { id: candidate.id },
+          eligibility: candidate.eligibility,
+          capabilities: [
+            {
+              provider: {
+                id: candidate.id,
+                name: `${candidate.id} provider`,
+                version: "1",
+              },
+              shared_limitations: [],
+              groups: candidate.operations.map((operation) => ({
+                operations: [operation],
+                effects: [],
+                limitations: [],
+                available: true,
+                reason: null,
+                availability_code: null,
+              })),
+            },
+          ],
+        })),
+      }),
 });
 
 const entry = (
@@ -526,6 +562,203 @@ describe("partial navigation availability", () => {
           ],
         },
       ],
+    });
+  });
+});
+
+describe("pending provider choice advice", () => {
+  it("prefers a candidate's alternative source over an unavailable auxiliary declaration", () => {
+    // The auxiliary metadata source is unavailable on this host, but a candidate
+    // can supply the alternative operation, so the host is not incapable.
+    const availability = entry(
+      "inspect_native_dispatch_metadata",
+      status({
+        open: true,
+        kind: "executable",
+        selectionState: "selection_required",
+        capabilities: [
+          {
+            operation: "inspect_native_dispatch_metadata",
+            available: false,
+            reason: "Direct metadata inspection requires macOS.",
+            availability_code: "unsupported_host",
+          },
+        ],
+        candidates: [
+          { id: "ghidra", eligibility: "eligible", operations: ["list_names"] },
+          { id: "ida", eligibility: "eligible", operations: ["list_names"] },
+        ],
+      }),
+    );
+
+    expect(availability).toMatchObject({
+      available: false,
+      reason: "provider_selection_required",
+      remediation:
+        "Reopen the target with open_binary and provider_id set to one of: ghidra, ida.",
+    });
+  });
+
+  it("offers a candidate for the requirement groups the route cannot satisfy", () => {
+    // The auxiliary provider already supplies dispatch metadata, so a candidate
+    // that covers only the remaining groups is still a resolvable choice.
+    const availability = entry(
+      "trace_native_ui_action",
+      status({
+        open: true,
+        kind: "executable",
+        selectionState: "selection_required",
+        capabilities: [
+          {
+            operation: "inspect_native_dispatch_metadata",
+            available: true,
+            reason: null,
+          },
+        ],
+        candidates: [
+          {
+            id: "ghidra",
+            eligibility: "eligible",
+            operations: [
+              "list_names",
+              "procedure_address",
+              "procedure_references",
+              "procedure_callees",
+            ],
+          },
+          {
+            id: "ida",
+            eligibility: "eligible",
+            operations: [
+              "procedure_address",
+              "procedure_references",
+              "procedure_callees",
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(
+      availability.modes?.find(({ name }) => name === "native_seed_call_trace"),
+    ).toMatchObject({
+      available: false,
+      remediation:
+        "Reopen the target with open_binary and provider_id set to one of: ghidra, ida.",
+    });
+  });
+});
+
+describe("unmet requirements no candidate satisfies", () => {
+  it("keeps the host denial when no candidate can supply the alternative source", () => {
+    // The same Linux composition without a candidate for `list_names`: nothing a
+    // selection could unlock, so the auxiliary host denial stands.
+    const availability = entry(
+      "inspect_native_dispatch_metadata",
+      status({
+        open: true,
+        kind: "executable",
+        selectionState: "selection_required",
+        capabilities: [
+          {
+            operation: "inspect_native_dispatch_metadata",
+            available: false,
+            reason: "Direct metadata inspection requires macOS.",
+            availability_code: "unsupported_host",
+          },
+        ],
+        candidates: [
+          {
+            id: "ghidra",
+            eligibility: "eligible",
+            operations: ["address_name"],
+          },
+        ],
+      }),
+    );
+
+    expect(availability).toMatchObject({
+      available: false,
+      reason: "unsupported_host",
+      remediation: "Direct metadata inspection requires macOS.",
+    });
+  });
+
+  it("keeps an unhealthy declaration when no candidate declares the operation", () => {
+    // Every unmet group has a declared descriptor, so the unhealthy declaration is
+    // reported instead of the pending choice.
+    const availability = entry(
+      "batch_decompile",
+      status({
+        open: true,
+        kind: "executable",
+        selectionState: "selection_required",
+        capabilities: [
+          {
+            operation: "procedure_pseudo_code",
+            available: false,
+            reason: "The analysis provider is not running.",
+          },
+        ],
+        candidates: [
+          {
+            id: "ghidra",
+            eligibility: "eligible",
+            operations: ["address_name"],
+          },
+        ],
+      }),
+    );
+
+    expect(availability).toMatchObject({
+      available: false,
+      reason: "provider_unavailable",
+      remediation: "The analysis provider is not running.",
+    });
+  });
+
+  it("does not aggregate requirement coverage across different candidates", () => {
+    // Each candidate covers only part of what is missing, so no single provider
+    // can run the mode and the pending choice is not the blocker.
+    const availability = entry(
+      "trace_native_ui_action",
+      status({
+        open: true,
+        kind: "executable",
+        selectionState: "selection_required",
+        capabilities: [
+          {
+            operation: "inspect_native_dispatch_metadata",
+            available: true,
+            reason: null,
+          },
+        ],
+        candidates: [
+          {
+            id: "ghidra",
+            eligibility: "eligible",
+            operations: ["procedure_address"],
+          },
+          {
+            id: "ida",
+            eligibility: "eligible",
+            operations: ["procedure_references", "procedure_callees"],
+          },
+        ],
+      }),
+    );
+
+    expect(
+      availability.modes?.find(({ name }) => name === "native_seed_call_trace"),
+    ).toMatchObject({
+      available: false,
+      missing_operations: [
+        "procedure_address",
+        "procedure_references",
+        "procedure_callees",
+      ],
+      remediation:
+        "Configure a provider for required operation procedure_address.",
     });
   });
 });

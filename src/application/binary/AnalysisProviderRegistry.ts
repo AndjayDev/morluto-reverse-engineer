@@ -40,6 +40,12 @@ import {
   evaluateAnalysisProviderCandidate,
   type AnalysisProviderCandidateEvaluation,
 } from "./AnalysisProviderEvaluation.js";
+import {
+  decideAutoProviderSelection,
+  type EligibleAnalysisProviderEvaluation,
+  type ProviderCandidateEligibility,
+  type ProviderSelectionState,
+} from "./AutoProviderSelectionPolicy.js";
 import { compareUnicodeCodePoints } from "../../domain/unicodeCodePointOrder.js";
 import type { RetainedResourceScope } from "../AnalysisProvider.js";
 
@@ -64,6 +70,12 @@ export interface AnalysisProviderCandidateStatus {
         readonly diagnostics: Readonly<Record<string, JsonValue>>;
       };
   readonly selected: boolean;
+  /**
+   * Whether this provider can be selected for the current target. A provider
+   * that is merely installed is not eligible until availability, target
+   * compatibility, and an identity-matched analysis profile all hold.
+   */
+  readonly eligibility: ProviderCandidateEligibility;
   readonly capabilities: readonly CapabilityDescriptor[];
 }
 
@@ -82,6 +94,20 @@ export interface AnalysisProviderBinding {
 export interface AnalysisProviderSelection {
   readonly requestedProviderId: string;
   readonly binding: AnalysisProviderBinding | null;
+  /**
+   * Deterministic outcome of this selection. Eligible candidates are reported
+   * separately per candidate so consumers never re-derive eligibility.
+   */
+  readonly selectionState: ProviderSelectionState;
+  /**
+   * Why an unbound selection never evaluated the deep candidates.
+   *
+   * `auxiliary-inspection` records that an auxiliary provider already covers the
+   * target, so REA deliberately skipped deep profile resolution. Those
+   * candidates stay `unevaluated`, which is an omission: this selection must not
+   * be reported as finding no eligible provider.
+   */
+  readonly unboundReason?: "auxiliary-inspection";
   readonly candidates: readonly AnalysisProviderCandidateStatus[];
 }
 
@@ -297,6 +323,9 @@ export class AnalysisProviderRegistry {
                 diagnostics: {},
               },
         selected: false,
+        // Readiness was not re-observed, so eligibility is a deliberate
+        // omission: the candidate is neither offered nor rejected.
+        eligibility: "unevaluated",
         capabilities: provider
           .capabilities()
           .map((capability) => structuredClone(capability)),
@@ -504,6 +533,11 @@ export class AnalysisProviderRegistry {
         return ok({
           requestedProviderId: selector,
           binding: null,
+          // Nothing was decided against these candidates: REA only established
+          // that the target is inspectable without a deep provider, so their
+          // discovery-time `unevaluated` eligibility stands unchanged.
+          selectionState: "unbound",
+          unboundReason: "auxiliary-inspection",
           candidates: baseline,
         });
       if (
@@ -517,7 +551,13 @@ export class AnalysisProviderRegistry {
         return ok({
           requestedProviderId: selector,
           binding: null,
-          candidates: baseline,
+          selectionState: "unbound",
+          candidates: baseline.map((status) => ({
+            ...status,
+            // Every candidate already decided against this target, so the
+            // omission is a rejection rather than an unevaluated profile.
+            eligibility: "ineligible" as const,
+          })),
         });
       if (selector !== "auto")
         return await this.#selectConcrete(
@@ -541,24 +581,39 @@ export class AnalysisProviderRegistry {
     }
   }
 
-  /** Explain why a deep operation is unavailable on an unbound target. */
+  /**
+   * Explain why a deep operation is unavailable on an unbound target.
+   *
+   * A target that is waiting for an explicit provider choice reports the
+   * actionable `ambiguous` reason rather than `provider_unavailable`: the
+   * configured providers are usable, and the caller must select one.
+   */
   unboundOperationError(
     operation: string,
     selection: AnalysisProviderSelection,
   ): ProviderSelectionError {
     const reason: ProviderSelectionFailureReason =
-      selection.candidates.length > 0 &&
-      selection.candidates.every(
-        ({ targetSupport }) => targetSupport.status === "unsupported",
-      )
-        ? "target_unsupported"
-        : "provider_unavailable";
+      selection.selectionState === "selection_required"
+        ? "ambiguous"
+        : selection.candidates.length > 0 &&
+            selection.candidates.every(
+              ({ targetSupport }) => targetSupport.status === "unsupported",
+            )
+          ? "target_unsupported"
+          : "provider_unavailable";
+    // The choices are the candidates that could serve this operation; the
+    // rejections keep every other candidate's own reason, so an unconfigured
+    // engine is explained instead of being offered as a choice.
+    const eligible = selection.candidates.filter(
+      ({ eligibility }) => eligibility === "eligible",
+    );
     return selectionError(
       reason,
       selection.requestedProviderId,
-      selection.candidates,
+      eligible.length === 0 ? selection.candidates : eligible,
       {
         operation,
+        rejectionCandidates: selection.candidates,
       },
     );
   }
@@ -602,10 +657,7 @@ export class AnalysisProviderRegistry {
       selectedResult(
         providerId,
         source,
-        {
-          ...evaluated,
-          profile: evaluated.profile,
-        },
+        { ...evaluated, profile: evaluated.profile },
         statuses,
       ),
     );
@@ -638,7 +690,9 @@ export class AnalysisProviderRegistry {
               })
             : ok({
                 candidate: provider,
-                status,
+                // A failed prerequisite already decided this candidate; the
+                // profile probe is skipped and the outcome is not an omission.
+                status: { ...status, eligibility: "ineligible" },
               } satisfies AnalysisProviderCandidateEvaluation);
         },
       ),
@@ -665,29 +719,16 @@ export class AnalysisProviderRegistry {
         ),
       );
     const statuses = evaluations.map(({ status }) => status);
-    const usable = evaluations.filter(
-      (
-        evaluation,
-      ): evaluation is AnalysisProviderCandidateEvaluation & {
-        readonly profile: AnalysisProfileCommitment;
-      } => evaluation.profile !== undefined,
-    );
-    if (usable.length === 0)
+    const decision = decideAutoProviderSelection(evaluations);
+    if (decision.state !== "bound")
       return ok({
         requestedProviderId: "auto",
         binding: null,
+        selectionState: decision.state,
         candidates: statuses,
       });
-    if (usable.length > 1)
-      return err(
-        selectionError(
-          "ambiguous",
-          "auto",
-          usable.map(({ status }) => status),
-          { rejectionCandidates: statuses },
-        ),
-      );
-    const selected = usable[0];
+    const selected: EligibleAnalysisProviderEvaluation | undefined =
+      decision.eligible[0];
     if (selected === undefined)
       throw new TypeError("Usable provider selection disappeared");
     return ok(
@@ -758,6 +799,7 @@ const projectCandidateStatus = async (
             ) ?? provider.inspectTargetSupport(target)),
           ),
     selected: false,
+    eligibility: "unevaluated",
     capabilities: readiness.capabilities.map((capability) =>
       structuredClone(capability),
     ),
@@ -770,28 +812,23 @@ const signalIsAborted = (signal: AbortSignal | undefined): boolean =>
 const selectedResult = (
   requestedProviderId: string,
   source: AnalysisProviderBinding["selectionSource"],
-  evaluated: AnalysisProviderCandidateEvaluation & {
-    readonly profile: AnalysisProfileCommitment;
+  evaluated: EligibleAnalysisProviderEvaluation & {
     readonly createClient?: AnalysisProviderBoundClientFactory;
   },
   statuses: readonly AnalysisProviderCandidateStatus[],
 ): AnalysisProviderSelection => {
-  const identity = evaluated.profile.provider;
-  const capabilities = evaluated.status.capabilities.map((capability) => ({
-    ...capability,
-    provider: structuredClone(identity),
-  }));
+  // The evaluation already attributes the resolved identity to the candidate and
+  // every capability it published, so selecting one only marks the choice.
+  const capabilities = evaluated.status.capabilities;
   const selectedStatus = {
     ...evaluated.status,
-    provider: structuredClone(identity),
     selected: true,
-    capabilities,
   } satisfies AnalysisProviderCandidateStatus;
   return {
     requestedProviderId,
     binding: {
       provider: evaluated.candidate,
-      identity: structuredClone(identity),
+      identity: structuredClone(evaluated.profile.provider),
       selectionSource: source,
       profile: structuredClone(evaluated.profile),
       ...(evaluated.createClient === undefined
@@ -799,6 +836,7 @@ const selectedResult = (
         : { createClient: evaluated.createClient }),
       capabilities,
     },
+    selectionState: "bound",
     candidates: replaceCandidate(statuses, selectedStatus),
   };
 };
