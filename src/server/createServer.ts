@@ -39,6 +39,9 @@ import { registerIl2cppTools } from "./registerIl2cppTools.js";
 import { createRustBinaryService } from "../composition/rust.js";
 import type { RustBinaryService } from "../application/rust/RustBinaryService.js";
 import { registerRustTools } from "./registerRustTools.js";
+import { createBeamService } from "../composition/erlang.js";
+import type { BeamService } from "../application/erlang/BeamService.js";
+import { registerErlangTools } from "./registerErlangTools.js";
 import type { RecordedCrashService } from "../application/binaryDiagnostics/RecordedCrashService.js";
 import { registerAnalysisViewTool } from "./registerAnalysisViewTool.js";
 import { registerBinaryDiagnosticsTools } from "./registerBinaryDiagnosticsTools.js";
@@ -172,6 +175,7 @@ export interface CreateServerOptions {
   readonly goBinary?: GoBinaryService;
   readonly il2cppMetadata?: Il2cppMetadataService;
   readonly rustBinary?: RustBinaryService;
+  readonly erlangBeam?: BeamService;
   readonly electronFuses?: ElectronFuseService;
   readonly recordedCrash?: RecordedCrashService;
   readonly firmwareAnalysis?: FirmwareAnalysisPort;
@@ -331,6 +335,7 @@ export const createServer = (
   const desktopApplication = createDesktopApplicationService();
   const goBinary = options.goBinary ?? createGoBinaryService();
   const rustBinary = options.rustBinary ?? createRustBinaryService();
+  const erlangBeam = options.erlangBeam ?? createBeamService();
   const modelArtifact = createModelArtifactService();
   const il2cppMetadata =
     options.il2cppMetadata ?? createIl2cppMetadataService();
@@ -418,6 +423,7 @@ export const createServer = (
       desktopApplication.close(),
       goBinary.close(),
       rustBinary.close(),
+      erlangBeam.close(),
       il2cppMetadata.close(),
       modelArtifact.close(),
       peResources.close(),
@@ -482,6 +488,7 @@ export const createServer = (
     artifactResources,
     goBinary,
     rustBinary,
+    erlangBeam,
     il2cppMetadata,
     peResources,
     electronFuses,
@@ -705,6 +712,7 @@ const registerConfiguredAnalysisTools = (
     withAdmittedAnalysis,
     goBinary,
     rustBinary,
+    erlangBeam,
     il2cppMetadata,
     peResources,
     webNetworkCapture,
@@ -774,6 +782,13 @@ const registerConfiguredAnalysisTools = (
   registerRustTools(
     server,
     rustBinary,
+    toolLogger,
+    recordEvidence,
+    withAdmittedAnalysis,
+  );
+  registerErlangTools(
+    server,
+    erlangBeam,
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
@@ -885,6 +900,7 @@ const createSessionRecorders = (
 interface ServerToolContext extends ReturnType<typeof createSessionRecorders> {
   readonly goBinary: GoBinaryService;
   readonly rustBinary: RustBinaryService;
+  readonly erlangBeam: BeamService;
   readonly il2cppMetadata: Il2cppMetadataService;
   readonly peResources: PeResourcesService;
   readonly electronFuses: ElectronFuseService;
