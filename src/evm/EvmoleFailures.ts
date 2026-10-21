@@ -1,4 +1,5 @@
 import type { EvmWorkerLimits } from "./EvmWorkerLimits.js";
+import { artifactFileCancellationCause } from "../artifacts/ArtifactFileOperation.js";
 import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import { artifactFileCancellationCause } from "../artifacts/ArtifactFileOperation.js";
 import {
