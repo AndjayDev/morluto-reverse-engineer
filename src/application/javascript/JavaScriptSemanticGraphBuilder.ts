@@ -39,6 +39,7 @@ import {
   unknownSemanticEvidence,
 } from "./JavaScriptSemanticGraphEvidence.js";
 import {
+  RETURNED_REFERENCE_WIDENING_LIMITATION,
   semanticCoverageResourceLimits,
   semanticResourceLimitCoverage,
 } from "../../domain/javascript/javascriptSemanticCoverage.js";
@@ -59,6 +60,7 @@ import {
   projectSemanticFrontiers,
   projectSemanticPromises,
   projectSemanticReturnValues,
+  semanticObjectReadOccurrence,
   type SemanticFlowProjectionContext,
 } from "./JavaScriptSemanticGraphFlowProjection.js";
 import {
@@ -555,6 +557,19 @@ function* projectFileSteps(
   if (moduleNode === null) return [];
   state.roots.add(moduleNode.node_id);
   projectFileResourceLimits({ file, ir, state, moduleNode });
+  for (const location of ir.coverage.widenedReturnedReferences ?? [])
+    addSemanticGraphUnknown(state, {
+      node_id: moduleNode.node_id,
+      family: "data-flow",
+      relation_kinds: ["defines"],
+      reason: "dynamic-property",
+      detail: RETURNED_REFERENCE_WIDENING_LIMITATION,
+      candidate_node_ids: [],
+      evidence: {
+        ...unknownSemanticEvidence(file, location),
+        limitations: [RETURNED_REFERENCE_WIDENING_LIMITATION],
+      },
+    });
   yield* projectElectronSemanticCallPaths(file, paths, state);
   // Node creation keeps source order, which the per-file node budget relies
   // on; yields between nodes do not change it.
@@ -646,10 +661,10 @@ function* projectFileSteps(
 const projectFileResourceLimits = (
   context: Pick<FileContext, "file" | "ir" | "state" | "moduleNode">,
 ): void => {
-  // Getter limits describe query effects without tagged values; other limits
+  // Query limits describe effects without tagged values; other limits
   // already project from binding or return-site values and must not be duplicated.
   for (const limit of semanticCoverageResourceLimits(context.ir.coverage)) {
-    if (limit !== "getter-expansion") continue;
+    if (limit !== "getter-expansion" && limit !== "alias-selections") continue;
     addSemanticGraphUnknown(context.state, {
       node_id: context.moduleNode.node_id,
       family: "data-flow",
@@ -814,6 +829,15 @@ const projectCalls = (context: FileContext): void => {
               ? "resolved"
               : "candidate",
         });
+      addRelation(context.state, {
+        source: semanticObjectReadOccurrence(
+          context,
+          argument.valueExpressionLocation,
+        ),
+        target: argumentNode,
+        relation: "aliases",
+        resolution: "resolved",
+      });
     }
   }
   for (const flow of context.ir.argumentFlows) {

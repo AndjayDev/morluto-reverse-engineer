@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import {
   ExecFileOutputCancelledError,
   execFileBytes,
@@ -22,6 +23,37 @@ const probe = (signal?: AbortSignal) =>
     },
     signal,
   );
+
+it("classifies the complete diagnostic before shortening its displayed reason", async () => {
+  const localPath = `/host/${"directory/".repeat(60)}payload.bin`;
+  const stderr = `adb: error: cannot create '${localPath}': Permission denied`;
+  vi.mocked(execFileBytes).mockRejectedValueOnce(
+    Object.assign(new Error("local destination refused"), {
+      code: 1,
+      stdout: "",
+      stderr,
+      signal: null,
+      killed: false,
+    }),
+  );
+  await expect(
+    runAdbCapture(
+      "pull_adb_file",
+      { device: "device", path: "/remote/file", localPath },
+      "/host/adb",
+      [],
+      { timeoutMs: 100, maxOutputBytes: 2048 },
+      undefined,
+    ),
+  ).resolves.toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisUnsupportedTargetError",
+      path: localPath,
+      reason: stderr.slice(0, 512),
+    },
+  });
+});
 
 it("recognizes only the completed empty false result as absence", async () => {
   vi.mocked(execFileBytes).mockRejectedValueOnce(
@@ -152,6 +184,42 @@ it("does not infer cancellation from a foreign ABORT_ERR code", async () => {
   });
 });
 
+it.each([true, false])(
+  "projects a truncated adb capture as retryable only for volatile output (%s)",
+  async (volatileOutput) => {
+    vi.mocked(execFileBytes).mockRejectedValueOnce(
+      Object.assign(new Error("too much"), {
+        code: 1,
+        stdout: "",
+        stderr: "",
+        signal: null,
+        killed: false,
+        outputTruncated: true,
+      }),
+    );
+    const result = await runAdbCapture(
+      volatileOutput ? "read_adb_logcat" : "install_adb_package",
+      { device: "device" },
+      "/host/adb",
+      volatileOutput ? ["logcat", "-d"] : ["install", "app.apk"],
+      { timeoutMs: 100, maxOutputBytes: 1024, volatileOutput },
+      undefined,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected a capture allowance refusal");
+    const projected = projectAnalysisError(result.error);
+    expect(projected.retryable).toBe(volatileOutput);
+    expect(projected.remediation.action).toContain(
+      "The adb output capture allowance",
+    );
+    expect(projected.remediation.action).toContain(
+      volatileOutput
+        ? "live output may change between requests"
+        : "Repeating the unchanged request fails the same way.",
+    );
+  },
+);
+
 it("keeps a physical failure even when the later abort reason is that same error", async () => {
   const controller = new AbortController();
   const failure = new Error("physical command failure");
@@ -161,7 +229,7 @@ it("keeps a physical failure even when the later abort reason is that same error
   });
   const result = await runAdbCapture(
     "inspect_adb_device",
-    "device",
+    { device: "device" },
     "/host/adb",
     [],
     { timeoutMs: 100, maxOutputBytes: 1024 },

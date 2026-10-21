@@ -151,6 +151,7 @@ REA richiede Node.js 22.x (>=22.19), 24.x (>=24.11) o 26+, oltre a npm. Strument
 | Rust binaries                | Embedded cargo-auditable dependency list                                                          | [Rust binaries](../rust-binaries.md)                                                                                            |
 | Erlang BEAM                  | IFF chunks, atoms, exports, and tables                                                            | Built-in static BEAM inspection; [Erlang BEAM](../erlang-beam.md)                                                               |
 | Crash Linux registrati       | Note grezze, registri/segnai di ogni thread registrato e candidati mapping opzionali              | pwntools fornito dal chiamante; GDB/pwndbg opzionale; [crash registrati](../recorded-crashes.md)                                |
+| Installazioni desktop        | Runtime candidati, file di supporto, componenti e passi successivi                                | Ispezione limitata di directory e intestazioni；[Applicazioni desktop](../desktop-applications.md)                              |
 | JavaScript / Electron        | Moduli, import, source map, route, IPC e relazioni con add-on nativi                              | Node.js e npm; [analisi delle applicazioni](../javascript-application-workflows.md)                                             |
 | Siti web                     | Struttura della pagina, script, osservazioni di rete e screenshot richiesti                       | Un browser della famiglia Chrome; [analisi browser](../browser-observation.md)                                                  |
 | Acquisizioni di rete salvate | Richieste, risposte, payload esposti e posizioni sorgente                                         | HAR; mitmdump su Linux per acquisizioni mitmproxy native; [guida alle acquisizioni](../web-network-captures.md)                 |
@@ -268,6 +269,7 @@ Inizia dalle [guide pratiche](https://rea.tools/it/guides/) del sito web. Per op
 
 - [Installazione e configurazione](../installation.md): registrazione agente, configurazione provider, aggiornamenti e disinstallazione.
 - [Pronto all'uso e risoluzione dei problemi](../installation.md#check-readiness-for-your-task): diagnostica un agente o un motore di analisi.
+- [GGUF / safetensors](../model-artifacts.md)
 - [CLI ed Evidence](../cli.md): comandi, selezione provider, snapshot, import/export e stati di uscita.
 - [Contratti MCP](../mcp-contracts.md) e [prompt agente](../mcp-prompts.md): risultati degli strumenti, sessioni e indagini guidate.
 - [Catalogo strumenti](../mcp-contracts.md#generated-catalog): inventario generato di strumenti, provider e comandi CLI.

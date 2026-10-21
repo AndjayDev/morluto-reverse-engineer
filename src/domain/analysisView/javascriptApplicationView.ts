@@ -307,7 +307,10 @@ const selectModule = (
 export const projectJavaScriptApplicationView = (
   parent: AnalysisViewParent,
   analysis: JavaScriptApplicationAnalysisResult,
-  view: Exclude<AnalysisViewRequest, { kind: "api-surface" }>,
+  view: Exclude<
+    AnalysisViewRequest,
+    { kind: "api-surface" | "environment-manifest" | "environment-state" }
+  >,
 ): Result<UnsignedAnalysisView, AnalysisError> => {
   if (
     view.kind !== "summary" &&
@@ -347,6 +350,8 @@ export const projectJavaScriptApplicationView = (
     });
   }
   if (view.kind === "summary") {
+    // Summary coverage counts modules. Graph nodes that are not modules stay
+    // in summary.coverage.application rather than inflating this total.
     const moduleCount = analysis.graph.nodes.reduce(
       (count, node) => count + Number(isModuleNode(node)),
       0,
@@ -381,7 +386,7 @@ export const projectJavaScriptApplicationView = (
         }),
         limitation_count: analysis.limitations.length,
       },
-      coverage: completeCoverage(moduleCount, analysis.graph.nodes.length),
+      coverage: completeCoverage(moduleCount, moduleCount),
       ...shared,
     });
   }

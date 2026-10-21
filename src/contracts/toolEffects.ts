@@ -125,7 +125,10 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     executesForeignCode: true,
     idempotent: false,
   }),
+  inspect_desktop_application: evidence,
   inspect_go_binary: evidence,
+  inspect_il2cpp_metadata: evidence,
+  inspect_model_artifact: evidence,
   inspect_rust_binary: evidence,
   inspect_erlang_beam: evidence,
   inspect_sqlite_database: effects({
@@ -677,6 +680,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   project_apple_application_graph: evidence,
   project_harmony_application_graph: evidence,
   open_binary: effects({ mutatesSession: true, launchesProcess: true }),
+  open_bundle_resources: effects({ mutatesSession: true }),
   close_binary: effects({
     mutatesSession: true,
     writesFilesystem: true,
@@ -704,6 +708,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   compare_artifacts: sessionEvidence,
   compare_wasm_interfaces: sessionEvidence,
   compare_functions: sessionEvidence,
+  match_native_functions: sessionEvidence,
   compare_bundles: effects({ mutatesSession: true }),
   find_changed_behavior: sessionEvidence,
   build_call_path: sessionEvidence,
