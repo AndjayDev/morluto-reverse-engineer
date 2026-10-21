@@ -1,17 +1,69 @@
 ---
 name: reverse-engineer-anything
-description: Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA. Use shipped-artifact or requested runtime evidence to explain features, compare versions, decompile code, or guide a reconstruction. Skip REA for ordinary source-repository architecture analysis.
+description: Reverse engineer a selected app, website, source tree, or software artifact into evidence-backed product, architecture, and UI/UX specifications. Route research, code and runtime analysis, requested reconstruction, and verification through one workflow. Use REA engines for shipped artifacts when needed; skip engine setup for source-only or supplied-capture work.
 metadata:
-  version: "44"
+  version: "46"
 ---
 
 # REA
+
+## Start from the requested outcome
+
+Use this skill as the entry point; the user supplies the target and desired
+result, not a list of helper skills. Read [workflow routing](references/workflow-routing.md)
+to select product research, code/artifact analysis, UI/UX specification,
+requested reconstruction, or verification. Combine only the routes needed for
+the task and carry one evidence index through them. Resolve the target from the
+request and active task context; if neither selects one, ask for it before
+investigating an app.
+
+An analysis or specification request ends with findings and acceptance criteria.
+A build request continues through implementation and verification. Optional
+specialist skills support the selected route when available; they are not
+required installations, and reading this skill does not execute them. Report
+which routes actually ran and which results remain unverified.
 
 Use REA when a claim depends on a shipped binary or package, decompilation,
 passive application runtime evidence, or comparison with
 behavior not established by available source. For ordinary analysis of a
 complete source repository, use normal repository tools and do not run REA
-readiness or provider commands.
+readiness or provider commands. For UI/UX deconstruction, use the workflow below
+with the evidence available: source, supplied captures, or an authorized running
+interface. A screenshot-only or source-only task does not require REA setup.
+
+## Reverse engineer UI and UX
+
+When the task concerns an interface, design system, interaction, or user flow,
+read [UI/UX deconstruction](references/ui-ux-deconstruction.md). Use its
+[specification template](references/ui-ux-spec-template.md) for the handoff;
+scale the depth to the requested screens and journeys.
+
+1. Select the target, user tasks, capture conditions, and evidence limits.
+   Inventory screens, routes, overlays, and representative states before drilling
+   into individual components.
+2. Recover visual structure: component hierarchy, grid and containment rules,
+   spacing, typography, colors, elevation, assets, and light/dark token mappings.
+   Keep declared values, rendered measurements, and inferred tokens distinct.
+3. Exercise applicable default, hover, focus, active, disabled, loading, error,
+   and empty states. Document triggers, guards, feedback, and recovery, including
+   optimistic updates and background work.
+4. Inspect transitions, micro-interactions, orchestration, gestures, and scroll
+   behavior. Record timing sources and uncertainty; do not invent exact spring
+   parameters from visual similarity.
+5. Map navigation, decision paths, keyboard/focus behavior, accessibility
+   semantics, and announcements. Correlate UI checkpoints with scoped network
+   traces without treating temporal proximity as proof of causality.
+6. Produce source-linked tokens, component blueprints, flow/state tables, motion
+   records, and an acceptance matrix. Replay the selected journeys and reconcile
+   contradictions; mark unobserved behavior and unsupported checks explicitly.
+
+Use available advertised REA tools for their supported captures, and authorized
+browser/OS inspection tools for additional measurements. This methodology does
+not add tool capabilities or turn passive observation into action execution.
+When reconstruction is requested, separate observed behavior from proposed
+improvements; preserve the target's design rather than imposing a new library
+or aesthetic. A specification can be complete for its agreed scope while runtime
+or reconstruction verification remains partial.
 
 ## Connect only when needed
 
@@ -381,6 +433,11 @@ as complete while required questions remain open.
 
 ## Read only the relevant guide
 
+- Outcome selection, optional specialist routing, and a shared handoff:
+  [references/workflow-routing.md](references/workflow-routing.md)
+- UI/UX discovery, visual systems, states, motion, flows, and accessibility:
+  [references/ui-ux-deconstruction.md](references/ui-ux-deconstruction.md)
+  and its [specification template](references/ui-ux-spec-template.md)
 - Native binaries, managed assemblies, archives, and extraction:
   [references/native-and-artifacts.md](references/native-and-artifacts.md)
 - ASARs, extracted JavaScript, feature tracing, and version comparison:

@@ -1,5 +1,10 @@
 # Browser and Electron runtime observation
 
+For interface analysis, use the [UI/UX deconstruction workflow](ui-ux-deconstruction.md)
+to select states and evidence before capturing. DOM and screenshots alone do not
+recover computed styles, motion parameters, or a complete accessibility contract;
+the guide distinguishes supported captures from additional inspection methods.
+
 Supply the existing browser or Electron instance's literal-port loopback CDP
 endpoint in the request. No separate permission configuration or per-call
 approval flag is needed. Browser discovery lists eligible HTTP(S) pages;
