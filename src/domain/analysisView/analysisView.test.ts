@@ -29,6 +29,7 @@ import { sourceMapReference } from "../javascript/javascriptApplicationGraph.fix
 import { createArtifactInspection } from "../artifactInspection.js";
 import { javascriptModulePath } from "./javascriptApplicationView.js";
 import {
+  analysisViewResultSchema,
   inspectAnalysisViewInputSchema,
   projectAnalysisView,
   type AnalysisViewParent,
@@ -98,6 +99,134 @@ it("projects native procedure and bounded assembly and high-pcode with exact par
   });
   if (!flow.ok) throw flow.error;
   expect(flow.value).toMatchObject({ item: [{ opcode: "COPY" }] });
+});
+
+it("projects a compact analyze_function summary that validates and retains the dossier", () => {
+  const parent = nativeParent();
+  const summary = projectAnalysisView(parent, { kind: "summary" });
+  if (!summary.ok) throw summary.error;
+  const validated = analysisViewResultSchema.parse(summary.value);
+  expect(validated).toMatchObject({
+    kind: "summary",
+    parent_operation: "analyze_function",
+    parent_evidence_id: parent.evidenceId,
+    artifact: parent.artifact,
+    summary: {
+      procedure: { address: "0x401000" },
+      pseudocode: { available: true },
+      value_flow: { available: true },
+      facet_availability: { references: { available: true } },
+      counts: { assembly: 2, incoming_references: 0 },
+    },
+  });
+});
+
+it("keeps omitted optional dossier records unknown in the analyze_function summary", () => {
+  const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+  // The fixture omits unresolved_calls and Swift literals, as IDA and Kuna
+  // dossiers and non-Swift targets do: their counts are unknown, not zero.
+  const omitted = projectAnalysisView(nativeParent(dossier), {
+    kind: "summary",
+  });
+  if (!omitted.ok) throw omitted.error;
+  expect(analysisViewResultSchema.parse(omitted.value)).toMatchObject({
+    summary: {
+      counts: {
+        unresolved_calls: null,
+        swift_string_literals: null,
+        swift_string_literal_omissions: null,
+      },
+    },
+    unknowns: expect.arrayContaining([
+      "unresolved_calls not recorded",
+      "swift_string_literals not recorded",
+      "swift_string_literal_omissions not recorded",
+    ]),
+  });
+  const recorded = projectAnalysisView(
+    nativeParent({
+      ...dossier,
+      unresolved_calls: [{ address: "0x401010", reason: "indirect call" }],
+      swift_string_literals: [],
+      swift_string_literal_omissions: [],
+    }),
+    { kind: "summary" },
+  );
+  if (!recorded.ok) throw recorded.error;
+  expect(analysisViewResultSchema.parse(recorded.value)).toMatchObject({
+    summary: {
+      counts: {
+        unresolved_calls: 1,
+        swift_string_literals: 0,
+        swift_string_literal_omissions: 0,
+      },
+    },
+  });
+  expect(recorded.value.unknowns).not.toContain(
+    "unresolved_calls not recorded",
+  );
+  expect(recorded.value.unknowns).not.toContain(
+    "swift_string_literals not recorded",
+  );
+});
+
+it("keeps provider-unavailable facets unknown in the analyze_function summary", () => {
+  // A Kuna-style dossier: empty rows with explicit unavailability for several facets.
+  const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+  const unsupported = {
+    ...dossier,
+    comments: [],
+    incoming_references: [],
+    outgoing_references: [],
+    basic_blocks: [],
+    facet_availability: {
+      ...dossier.facet_availability,
+      comments: {
+        available: false,
+        reason: "Kuna exports no analyst comments.",
+      },
+      references: {
+        available: false,
+        reason: "This provider does not report typed references.",
+      },
+      cfg: { available: false, reason: "Kuna exports no basic blocks." },
+    },
+  };
+  const summary = projectAnalysisView(nativeParent(unsupported), {
+    kind: "summary",
+  });
+  if (!summary.ok) throw summary.error;
+  const validated = analysisViewResultSchema.parse(summary.value);
+  expect(validated).toMatchObject({
+    kind: "summary",
+    summary: {
+      facet_availability: unsupported.facet_availability,
+      counts: {
+        comments: null,
+        incoming_references: null,
+        outgoing_references: null,
+        basic_blocks: null,
+        // Declared-available facets keep their observed counts.
+        assembly: 2,
+        callers: 0,
+        referenced_strings: dossier.referenced_strings.length,
+      },
+    },
+    unknowns: expect.arrayContaining([
+      "comments unavailable: Kuna exports no analyst comments.",
+      "references unavailable: This provider does not report typed references.",
+      "cfg unavailable: Kuna exports no basic blocks.",
+    ]),
+  });
+  // A dossier that declares nothing reports null availability and plain counts.
+  const { facet_availability: _declared, ...undeclared } = dossier;
+  const silent = projectAnalysisView(nativeParent(undeclared), {
+    kind: "summary",
+  });
+  if (!silent.ok) throw silent.error;
+  expect(silent.value).toMatchObject({
+    summary: { facet_availability: null, counts: { comments: 0 } },
+  });
 });
 
 it("rejects invalid native parents, unsupported source operations and singleton offsets", () => {

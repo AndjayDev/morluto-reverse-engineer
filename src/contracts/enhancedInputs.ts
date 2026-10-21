@@ -69,6 +69,7 @@ export const enhancedInputSchemas = {
   }),
   find_xrefs_to_name: z.strictObject({ name: z.string() }),
   binary_overview: z.strictObject({}),
+  // Provider input only; MCP delivery detail is owned by the analyze_function tool contract.
   analyze_function: z.strictObject({
     procedure: z.string().describe("A procedure name or address"),
   }),
