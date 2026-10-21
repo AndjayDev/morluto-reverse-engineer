@@ -150,6 +150,113 @@ cliTest(
   },
 );
 
+cliTest.for([
+  { command: "analyze", source: "file" },
+  { command: "analyze-javascript-application", source: "inline" },
+])(
+  "appends $source --source-paths-json selections to --source-path through $command",
+  { timeout: 60_000 },
+  async ({ command, source }, { cli }) => {
+    const directory = await createTestTempDirectory(
+      "rea-js-source-paths-json-",
+    );
+    await writeJavaScriptSourceSelectionFixture(directory);
+    const listed = ["main.mjs", "package.json"];
+    let sourcePathsJson = JSON.stringify(listed);
+    if (source === "file") {
+      sourcePathsJson = join(
+        await createTestTempDirectory("rea-js-source-paths-list-"),
+        "paths.json",
+      );
+      await writeFile(sourcePathsJson, JSON.stringify(listed));
+    }
+    const response = await cli.run({
+      arguments: [
+        command,
+        directory,
+        "--source-path",
+        "package.json",
+        "--source-paths-json",
+        sourcePathsJson,
+        "--format",
+        "json",
+      ],
+    });
+    expect(response.exitCode).toBe(0);
+    const evidence = parseEvidence(response.json);
+    const result = javascriptApplicationAnalysisResultSchema.parse(
+      evidence.normalized_result,
+    );
+    const requested = ["package.json", ...listed];
+    expect(result.source_selection).toEqual({
+      requested_paths: requested,
+      unselected_files: 4,
+    });
+    expect(evidence.parameters.source_paths).toEqual(requested);
+    expect(result.statistics.parsed_javascript_files).toBe(1);
+  },
+);
+
+cliTest.for([
+  { label: "an object", value: '{"paths":["main.mjs"]}', path: [] },
+  { label: "an empty array", value: "[]", path: [] },
+  { label: "a blank entry", value: '["main.mjs",""]', path: [1] },
+])(
+  "rejects --source-paths-json holding $label",
+  async ({ value, path }, { cli }) => {
+    const directory = await createTestTempDirectory(
+      "rea-js-source-paths-json-invalid-",
+    );
+    await writeJavaScriptSourceSelectionFixture(directory);
+    const response = await cli.run({
+      arguments: [
+        "analyze-javascript-application",
+        directory,
+        "--source-paths-json",
+        value,
+        "--format",
+        "json",
+      ],
+    });
+    expect(response.exitCode).toBe(1);
+    expect(response.json).toMatchObject({
+      code: "invalid_request",
+      details: {
+        issues: [{ path: ["source_paths_json", ...path] }],
+      },
+    });
+  },
+);
+
+cliTest(
+  "rejects --source-paths-json when an explicit provider chooses the native lane",
+  async ({ cli }) => {
+    const directory = await createTestTempDirectory(
+      "rea-js-source-paths-json-native-refusal-",
+    );
+    await writeJavaScriptSourceSelectionFixture(directory);
+    const response = await cli.run({
+      arguments: [
+        "analyze",
+        directory,
+        "--provider",
+        "ghidra",
+        "--source-paths-json",
+        '["main.mjs"]',
+        "--format",
+        "json",
+      ],
+    });
+    expect(response.exitCode).toBe(1);
+    expect(response.json).toMatchObject({
+      code: "invalid_request",
+      details: {
+        issues: [{ path: ["source_paths"], reason: "invalid_value" }],
+      },
+    });
+  },
+);
+
 cliTest(
   "accepts legal ASAR JSON whitespace while preserving selected-source identity",
   { timeout: 60_000 },
