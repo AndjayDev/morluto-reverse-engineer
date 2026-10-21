@@ -713,8 +713,8 @@ A re-seeded application holds the same entities under other ids, so the comparis
 to one call pair by a natural key, a string field unique on each side that both share, such as a name or a slug; their
 identifier fields (`id`, `uuid`, `guid`, and names ending in `_id`, `Id`, `ID`, `_uuid` or `Uuid`), and those of two single
 answers such as a create's, map the live value to the environment's. Ids are learned only from an answer the environment
-gave that call itself, from its state or a recording of exactly those arguments, never from another call's recording
-replayed in its place, and the answer's own `id`, `uuid` or `guid` also maps within the collection the call names, since
+gave that call itself, from its state or a recording of that very call, request line and body, never from another call's
+recording replayed in its place, and the answer's own `id`, `uuid` or `guid` also maps within the collection the call names, since
 two collections can reuse a live id. A live id in a later request's path, query or body is translated before the
 environment answers, a path parameter by the collection it names, except a query value that pages a list, such as `limit`
 or `page`. Each call is checked against the served tool's input schema first, as the MCP server checks it. After mapping, two clock values compare by format only (ISO-8601 strings, and epoch numbers under

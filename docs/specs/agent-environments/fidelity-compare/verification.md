@@ -82,3 +82,8 @@ objects pair when some keys overlap. Each new test fails on the previous head. T
 services 7504 passed with 5 pre-existing skips; the focused boundaries 80; conformance; `jscpd` 3.46%). Re-run on the
 same probes with this branch and the template rule's merged, the six environments compare exactly as in the table above,
 step for step, with the same ids mapped and the same values normalised.
+
+A second round, on Greptile's review of those changes, learned ids from a replay only when the whole recorded line and
+request body match the call, compared an entity's own identity within the call's collection and other ids by the probe's
+mapping, read overlapping keys as ids only when they evidently are ids, and kept a JSON empty string apart from empty
+text. Its four tests fail on the previous head; the six environments again compare exactly as in the table.
