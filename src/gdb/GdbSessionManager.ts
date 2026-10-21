@@ -83,6 +83,7 @@ interface PendingCommand {
   outputTruncated: boolean;
   outputInvalidUtf8: boolean;
   terminalRecord: string | undefined;
+  joinedShellCompletion: string | undefined;
   awaitingInferiorStop: boolean;
   readonly resolve: (result: GdbCommandResult) => void;
   readonly reject: (error: Error) => void;
@@ -1619,12 +1620,35 @@ export class GdbSessionManager {
       const match = /^(\d+)\^(done|running|connected|error|exit)(?:,|$)/u.exec(
         line,
       );
-      if (match === null) continue;
-      const token = Number(match[1]);
-      const pending = session.pending.get(token);
+      // GDB writes shell stdout directly to the MI pipe. If the command
+      // omits its final LF, the terminal can be glued to those bytes:
+      // "abc4^done". Only a matching shell-command suffix followed by
+      // GDB's prompt admits this recovered boundary; other MI requests
+      // still require an ordinary line-anchored result record.
+      const joined =
+        match === null && line.trim() === "(gdb)"
+          ? [...session.pending.values()].find(
+              (command) => command.joinedShellCompletion !== undefined,
+            )
+          : undefined;
+      if (match === null && joined === undefined) {
+        for (const command of session.pending.values()) {
+          command.joinedShellCompletion = undefined;
+          if (!/^shell(?:\s|$)/u.test(command.evidenceCommand)) continue;
+          const terminal = `${command.token}^done`;
+          if (line.length > terminal.length && line.endsWith(terminal))
+            command.joinedShellCompletion = terminal;
+        }
+        continue;
+      }
+      const pending =
+        joined ??
+        (match === null ? undefined : session.pending.get(Number(match[1])));
       if (pending === undefined) continue;
-      if (match[2] === "running") {
-        pending.terminalRecord = line;
+      const token = pending.token;
+      const terminalRecord = joined?.joinedShellCompletion ?? line;
+      if (match?.[2] === "running") {
+        pending.terminalRecord = terminalRecord;
         pending.awaitingInferiorStop = true;
         continue;
       }
@@ -1634,7 +1658,7 @@ export class GdbSessionManager {
       const records = [...pending.lines];
       pending.resolve({
         command: "",
-        mi: line,
+        mi: terminalRecord,
         records,
         console: records.filter((record) => record.startsWith("~")).join("\n"),
         target: records.filter((record) => record.startsWith("@")).join("\n"),
@@ -2061,6 +2085,7 @@ export class GdbSessionManager {
         outputTruncated: false,
         outputInvalidUtf8: false,
         terminalRecord: undefined,
+        joinedShellCompletion: undefined,
         awaitingInferiorStop: false,
       };
       session.pending.set(token, pending);
