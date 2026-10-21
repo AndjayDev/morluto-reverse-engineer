@@ -13,6 +13,13 @@ export function rejectModel(message: string): never {
   throw new ModelFormatFailure("format", message);
 }
 
+export function rejectPickle(): never {
+  throw new ModelFormatFailure(
+    "unsupported",
+    "PyTorch pickle/ZIP model deserialization is unsupported; supply GGUF or safetensors instead",
+  );
+}
+
 // Safetensors' format ceiling is 100,000,000 bytes. The reader additionally
 // bounds retained rows/text independently of that input ceiling.
 export const MODEL_HEADER_BYTES = 100_000_000;
