@@ -39,6 +39,9 @@ import { registerIl2cppTools } from "./registerIl2cppTools.js";
 import { createRustBinaryService } from "../composition/rust.js";
 import type { RustBinaryService } from "../application/rust/RustBinaryService.js";
 import { registerRustTools } from "./registerRustTools.js";
+import { createPythonPycService } from "../composition/pythonPyc.js";
+import type { PythonPycService } from "../application/python/PythonPycService.js";
+import { registerPythonPycTool } from "./registerPythonPycTool.js";
 import type { RecordedCrashService } from "../application/binaryDiagnostics/RecordedCrashService.js";
 import { registerAnalysisViewTool } from "./registerAnalysisViewTool.js";
 import { registerBinaryDiagnosticsTools } from "./registerBinaryDiagnosticsTools.js";
@@ -172,6 +175,7 @@ export interface CreateServerOptions {
   readonly goBinary?: GoBinaryService;
   readonly il2cppMetadata?: Il2cppMetadataService;
   readonly rustBinary?: RustBinaryService;
+  readonly pythonPyc?: PythonPycService;
   readonly electronFuses?: ElectronFuseService;
   readonly recordedCrash?: RecordedCrashService;
   readonly firmwareAnalysis?: FirmwareAnalysisPort;
@@ -336,6 +340,7 @@ export const createServer = (
     options.il2cppMetadata ?? createIl2cppMetadataService();
   const peResources = createPeResourcesService();
   const electronFuses = options.electronFuses ?? createElectronFuseService();
+  const pythonPyc = options.pythonPyc ?? createPythonPycService();
   const webNetworkCapture =
     options.webNetworkCapture ?? createWebNetworkCaptureService(environment);
   const javascriptRecovery =
@@ -422,6 +427,7 @@ export const createServer = (
       modelArtifact.close(),
       peResources.close(),
       electronFuses.close(),
+      pythonPyc.close(),
       webNetworkCapture.close(),
       javascriptRecovery.close?.() ?? Promise.resolve(),
       ...(options.optionalObservationProviderOwner === "caller"
@@ -485,6 +491,7 @@ export const createServer = (
     il2cppMetadata,
     peResources,
     electronFuses,
+    pythonPyc,
     webNetworkCapture,
   };
   registerDesktopApplicationTool(
@@ -707,6 +714,7 @@ const registerConfiguredAnalysisTools = (
     rustBinary,
     il2cppMetadata,
     peResources,
+    pythonPyc,
     webNetworkCapture,
     artifactResources,
   }: ServerToolContext,
@@ -774,6 +782,13 @@ const registerConfiguredAnalysisTools = (
   registerRustTools(
     server,
     rustBinary,
+    toolLogger,
+    recordEvidence,
+    withAdmittedAnalysis,
+  );
+  registerPythonPycTool(
+    server,
+    pythonPyc,
     toolLogger,
     recordEvidence,
     withAdmittedAnalysis,
@@ -888,6 +903,7 @@ interface ServerToolContext extends ReturnType<typeof createSessionRecorders> {
   readonly il2cppMetadata: Il2cppMetadataService;
   readonly peResources: PeResourcesService;
   readonly electronFuses: ElectronFuseService;
+  readonly pythonPyc: PythonPycService;
   readonly webNetworkCapture: WebNetworkCaptureService;
   readonly artifactResources: ArtifactResourceScope;
   readonly server: EvidenceMcpServer;

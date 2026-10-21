@@ -130,6 +130,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   inspect_il2cpp_metadata: evidence,
   inspect_model_artifact: evidence,
   inspect_rust_binary: evidence,
+  inspect_python_pyc: evidence,
   inspect_sqlite_database: effects({
     mutatesSession: true,
     writesFilesystem: true,
