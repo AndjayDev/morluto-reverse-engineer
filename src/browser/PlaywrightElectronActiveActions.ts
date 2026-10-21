@@ -1,4 +1,4 @@
-import type { ElectronApplication, Page } from "playwright-core";
+import type { ElectronApplication, JSHandle, Page } from "playwright-core";
 import { z } from "zod";
 
 import type { ExecutionOptions } from "../application/AnalysisProvider.js";
@@ -80,6 +80,8 @@ export const runElectronActions = async (
     const actionStartedAt = performance.now();
     const windowIndex = actionWindowIndex(action);
     let selectedWindow: Page | undefined;
+    let selectedTarget: string | null = null;
+    let windowHandle: JSHandle | undefined;
     try {
       if (options.signal?.aborted === true)
         throw new BrowserObservationError(OPERATION, "cancelled");
@@ -91,6 +93,15 @@ export const runElectronActions = async (
               windowIndex,
               signal: options.signal,
             });
+      windowHandle = await acquireWindowHandle({
+        application,
+        selectedWindow,
+        signal: options.signal,
+      });
+      selectedTarget = await resolveWindowTarget({
+        windowHandle,
+        signal: options.signal,
+      });
       if (
         (action.kind === "click" ||
           action.kind === "renderer-reload" ||
@@ -103,14 +114,14 @@ export const runElectronActions = async (
         application,
         action,
         selectedWindow,
+        windowHandle,
         options,
       });
       actions.push({
         step_id: action.step_id,
         kind: action.kind,
         window_index: windowIndex,
-        target:
-          selectedWindow === undefined ? null : `window:${String(windowIndex)}`,
+        target: selectedTarget,
         status: "completed",
         elapsed_ms: Math.max(
           0,
@@ -123,8 +134,7 @@ export const runElectronActions = async (
         step_id: action.step_id,
         kind: action.kind,
         window_index: windowIndex,
-        target:
-          selectedWindow === undefined ? null : `window:${String(windowIndex)}`,
+        target: selectedTarget,
         status: options.signal?.aborted ? "cancelled" : "failed",
         elapsed_ms: Math.max(
           0,
@@ -133,15 +143,86 @@ export const runElectronActions = async (
         error: safeActionErrorMessage(cause),
       });
       break;
+    } finally {
+      if (windowHandle !== undefined) {
+        try {
+          await windowHandle.dispose();
+        } catch {
+          // Suppress handle disposal errors to preserve primary action failure or outcome.
+        }
+      }
     }
   }
   return actions;
+};
+
+const acquireWindowHandle = async ({
+  application,
+  selectedWindow,
+  signal,
+}: {
+  readonly application: ElectronApplication;
+  readonly selectedWindow: Page | undefined;
+  readonly signal: AbortSignal | undefined;
+}): Promise<JSHandle | undefined> => {
+  if (
+    selectedWindow === undefined ||
+    typeof application.browserWindow !== "function"
+  ) {
+    return undefined;
+  }
+  const handlePromise = application.browserWindow(selectedWindow);
+  try {
+    return await runWithExecutionLimits(handlePromise, signal);
+  } catch (cause: unknown) {
+    void handlePromise
+      .then((lateHandle) => lateHandle?.dispose())
+      .catch(() => undefined);
+    if (signal?.aborted) throw cause;
+    return undefined;
+  }
+};
+
+const resolveWindowTarget = async ({
+  windowHandle,
+  signal,
+}: {
+  readonly windowHandle: JSHandle | undefined;
+  readonly signal: AbortSignal | undefined;
+}): Promise<string | null> => {
+  if (windowHandle === undefined) return null;
+  try {
+    const windowId: unknown = await runWithExecutionLimits(
+      windowHandle.evaluate((win: unknown) => {
+        const candidate = win as
+          | {
+              readonly id?: unknown;
+              isDestroyed?: () => boolean;
+            }
+          | null
+          | undefined;
+        if (candidate === null || candidate === undefined) return null;
+        if (
+          typeof candidate.isDestroyed === "function" &&
+          candidate.isDestroyed()
+        )
+          return null;
+        return typeof candidate.id === "number" ? candidate.id : null;
+      }),
+      signal,
+    );
+    return typeof windowId === "number" ? `window:${String(windowId)}` : null;
+  } catch (cause: unknown) {
+    if (signal?.aborted) throw cause;
+    return null;
+  }
 };
 
 type RunActionContext = {
   readonly application: ElectronApplication;
   readonly action: ElectronAction;
   readonly selectedWindow: Page | undefined;
+  readonly windowHandle: JSHandle | undefined;
   readonly options: ExecutionOptions;
 };
 
@@ -149,6 +230,7 @@ const runAction = async ({
   application,
   action,
   selectedWindow,
+  windowHandle,
   options,
 }: RunActionContext): Promise<void> => {
   switch (action.kind) {
@@ -188,13 +270,32 @@ const runAction = async ({
       );
       return;
     case "renderer-crash": {
+      if (windowHandle === undefined)
+        throw new BrowserObservationError(OPERATION, "window_not_found");
       const crashed = await runWithExecutionLimits(
-        application.evaluate(({ BrowserWindow }, index) => {
-          const candidate = BrowserWindow.getAllWindows()[index];
-          if (candidate === undefined || candidate.isDestroyed()) return false;
+        windowHandle.evaluate((win: unknown) => {
+          const candidate = win as
+            | {
+                readonly isDestroyed?: () => boolean;
+                readonly webContents?: {
+                  forcefullyCrashRenderer?: () => void;
+                };
+              }
+            | null
+            | undefined;
+          if (candidate === null || candidate === undefined) return false;
+          if (
+            typeof candidate.isDestroyed === "function" &&
+            candidate.isDestroyed()
+          )
+            return false;
+          if (
+            typeof candidate.webContents?.forcefullyCrashRenderer !== "function"
+          )
+            return false;
           candidate.webContents.forcefullyCrashRenderer();
           return true;
-        }, action.window_index),
+        }),
         options.signal,
       );
       if (!crashed)
