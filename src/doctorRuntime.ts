@@ -6,6 +6,8 @@ import {
 import { fileURLToPath } from "node:url";
 import { inspectJadxProvider } from "./android/JadxDoctor.js";
 import { inspectSystemGhidraProvider } from "./ghidra/GhidraDoctor.js";
+import { inspectBinaryNinjaRegistration } from "./binaryNinja/BinaryNinjaDoctor.js";
+import { readBinaryNinjaConfiguration } from "./binaryNinja/BinaryNinjaConfiguration.js";
 import { inspectIdaRegistration } from "./ida/IdaDoctor.js";
 import { inspectKunaProvider } from "./kuna/KunaDoctor.js";
 import { readIdaConfiguration } from "./ida/IdaConfiguration.js";
@@ -48,6 +50,30 @@ export const createSystemDoctorHost = (
     }
     return registration;
   };
+  const binaryNinjaReads = new WeakMap<
+    RetainedResourceScope,
+    Map<string, ReturnType<typeof readBinaryNinjaConfiguration>>
+  >();
+  const readBinaryNinjaRegistration = (
+    path: string,
+    resourceScope: RetainedResourceScope,
+    signal: AbortSignal,
+  ) => {
+    let byPath = binaryNinjaReads.get(resourceScope);
+    if (byPath === undefined) {
+      byPath = new Map();
+      binaryNinjaReads.set(resourceScope, byPath);
+    }
+    let registration = byPath.get(path);
+    if (registration === undefined) {
+      registration = readBinaryNinjaConfiguration(path, {
+        resourceScope,
+        signal,
+      });
+      byPath.set(path, registration);
+    }
+    return registration;
+  };
   const selectedJebEndpoint = environment.REA_JEB_MCP_URL;
   const selectedJebRegistrationEnvironment: Readonly<Record<string, string>> =
     selectedJebEndpoint !== undefined &&
@@ -65,6 +91,18 @@ export const createSystemDoctorHost = (
       resourceScope,
       inspectionSignal,
     ) => {
+      if (analysisProvider === "binary-ninja") {
+        const path = registrationEnvironment.REA_BINARY_NINJA_MCP_CONFIG;
+        if (path === undefined) return ok(undefined);
+        const registration = await readBinaryNinjaRegistration(
+          path,
+          resourceScope,
+          inspectionSignal,
+        );
+        return registration.ok
+          ? ok(registration.value.timeoutMs)
+          : registration;
+      }
       if (analysisProvider !== "ida" && analysisProvider !== "auto")
         return ok(undefined);
       const path = registrationEnvironment.REA_IDA_MCP_CONFIG;
@@ -94,6 +132,18 @@ export const createSystemDoctorHost = (
           ? undefined
           : readRegistration(
               environment.REA_IDA_MCP_CONFIG,
+              resourceScope,
+              inspectionSignal,
+            ),
+      ),
+      await inspectBinaryNinjaRegistration(
+        environment.REA_BINARY_NINJA_MCP_CONFIG,
+        resourceScope,
+        inspectionSignal,
+        environment.REA_BINARY_NINJA_MCP_CONFIG === undefined
+          ? undefined
+          : readBinaryNinjaRegistration(
+              environment.REA_BINARY_NINJA_MCP_CONFIG,
               resourceScope,
               inspectionSignal,
             ),

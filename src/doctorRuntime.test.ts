@@ -278,6 +278,28 @@ it("carries a validated REA_KUNA_COMMAND into the provider registration environm
   });
 });
 
+it("carries a validated REA_BINARY_NINJA_MCP_CONFIG into the provider registration environment without connecting", async () => {
+  expect(DOCTOR_PROVIDER_IDS).toContain("binary-ninja");
+  const root = await createTestTempDirectory("rea-binary-ninja-registration-");
+  const registration = join(root, "binary-ninja-mcp.json");
+  await writeFile(
+    registration,
+    JSON.stringify({ url: "http://127.0.0.1:9/mcp" }),
+  );
+
+  const inspections = await createSystemDoctorHost({
+    REA_BINARY_NINJA_MCP_CONFIG: registration,
+  }).providerInspections?.();
+
+  expect(inspections?.find(({ id }) => id === "binary-ninja")).toMatchObject({
+    configured: true,
+    available: true,
+  });
+  expect(providerRegistrationEnvironment(inspections ?? [])).toMatchObject({
+    REA_BINARY_NINJA_MCP_CONFIG: registration,
+  });
+});
+
 const createFakeJdk = async (root: string): Promise<string> => {
   const javaHome = join(root, "fake-jdk");
   const bin = join(javaHome, "bin");
