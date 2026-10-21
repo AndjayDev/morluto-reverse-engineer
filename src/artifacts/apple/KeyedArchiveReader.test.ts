@@ -602,6 +602,39 @@ describe("binary plist date object region", () => {
   });
 });
 
+describe("aliased binary table entries", () => {
+  it("preserves a 16-byte integer whose payload a valid date entry aliases", () => {
+    // Fixture bytes follow the public #5783 recipe (python plistlib,
+    // FMT_BINARY): table object 8 is a 16-byte integer whose payload reads
+    // 6 zero bytes + 0x33 + double(.1005) + 0x00, the exact integer
+    // 242016218615821083930112. In the aliased copy the date object's table
+    // entry points into that payload at integer+7; plutil and Python accept
+    // the overlap.
+    const ordinary = Buffer.from(
+      "YnBsaXN0MDDUAQIDBAUGCg1ZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZXKjBwgJVSRudWxsFAAAAAAAADM/ubpeNT987gAzP7m6XjU/fO7RCwxUcm9vdIABEgABhqAIERskKTJESE5faGtwcgAAAAAAAAEBAAAAAAAAAA4AAAAAAAAAAAAAAAAAAAB3",
+      "base64",
+    );
+    const aliased = Buffer.from(
+      "YnBsaXN0MDDUAQIDBAUGCg1ZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZXKjBwgJVSRudWxsFAAAAAAAADM/ubpeNT987gAzP7m6XjU/fO7RCwxUcm9vdIABEgABhqAIERskKTJESE5VaGtwcgAAAAAAAAEBAAAAAAAAAA4AAAAAAAAAAAAAAAAAAAB3",
+      "base64",
+    );
+    const decimal = "242016218615821083930112";
+    const ordinaryDate = decodeKeyedArchiveBytes(ordinary, {
+      offset: 0,
+      limit: 14,
+    }).objects.find(({ id }) => id === 2)?.value;
+    for (const bytes of [ordinary, aliased]) {
+      const graph = decodeKeyedArchiveBytes(bytes, { offset: 0, limit: 14 });
+      const integer = graph.objects.find(({ id }) => id === 1);
+      expect(integer?.value).toEqual({ $plist_type: "integer", decimal });
+      // The aliased date sibling decodes identically to the control.
+      expect(graph.objects.find(({ id }) => id === 2)?.value).toEqual(
+        ordinaryDate,
+      );
+    }
+  });
+});
+
 describe("XML plist nesting preflight", () => {
   const selection = { offset: 0, limit: 1 };
 

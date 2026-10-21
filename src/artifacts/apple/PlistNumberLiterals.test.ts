@@ -56,7 +56,7 @@ describe("binary plist number rewriting", () => {
     const value = (1n << 64n) | 2n;
     const decoded = decodeBinaryPlistNumbers(
       bytes,
-      { literals, wideIntegers: [{ offset: 0, value }] },
+      { literals, wideIntegers: [{ offset: 0, value, conflicted: false }] },
       [18, 26],
     );
     expect(decoded).not.toBe(bytes);
@@ -73,5 +73,35 @@ describe("binary plist number rewriting", () => {
       bytes,
     );
     expect(decodeBinaryPlistNumbers(bytes, representableOnly, [])).toBe(bytes);
+  });
+
+  it("keeps a wide integer whose payload a valid table entry aliases", () => {
+    // Same #5783 fixtures as the archive reader test: object 8 is a 16-byte
+    // integer; the aliased copy points the date entry into its payload.
+    const ordinary = Buffer.from(
+      "YnBsaXN0MDDUAQIDBAUGCg1ZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZXKjBwgJVSRudWxsFAAAAAAAADM/ubpeNT987gAzP7m6XjU/fO7RCwxUcm9vdIABEgABhqAIERskKTJESE5faGtwcgAAAAAAAAEBAAAAAAAAAA4AAAAAAAAAAAAAAAAAAAB3",
+      "base64",
+    );
+    const aliased = Buffer.from(
+      "YnBsaXN0MDDUAQIDBAUGCg1ZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZXKjBwgJVSRudWxsFAAAAAAAADM/ubpeNT987gAzP7m6XjU/fO7RCwxUcm9vdIABEgABhqAIERskKTJESE5VaGtwcgAAAAAAAAEBAAAAAAAAAA4AAAAAAAAAAAAAAAAAAAB3",
+      "base64",
+    );
+    const value = 242016218615821083930112n;
+
+    const control = scanBinaryPlistNumberLiterals(ordinary);
+    expect(control.literals.incomplete).toBe(false);
+    expect(control.wideIntegers).toEqual([
+      { offset: 78, value, conflicted: false },
+    ]);
+    const patched = decodeBinaryPlistNumbers(ordinary, control);
+    expect(patched).not.toBe(ordinary);
+    expect(patched[78]).toBe(0x23);
+
+    const metadata = scanBinaryPlistNumberLiterals(aliased);
+    expect(metadata.literals.incomplete).toBe(true);
+    expect(metadata.wideIntegers).toEqual([
+      { offset: 78, value, conflicted: true },
+    ]);
+    expect(decodeBinaryPlistNumbers(aliased, metadata)).toBe(aliased);
   });
 });

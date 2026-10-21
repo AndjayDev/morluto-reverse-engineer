@@ -42,6 +42,54 @@ const MAX_BYTES = 64 * 1024 * 1024;
 /** Decoded representation budget, the same 8:1 ratio Interface Builder uses. */
 const MAX_DECODE_BYTES = 8 * MAX_BYTES;
 
+/** Exact decimals for wide integers an in-place rewrite cannot cover, keyed by $objects index. */
+const conflictedIntegerRestorations = (
+  decoderInput: Buffer,
+  value: unknown,
+  wideIntegers: readonly {
+    offset: number;
+    value: bigint;
+    conflicted: boolean;
+  }[],
+): Map<number, string> => {
+  const restorations = new Map<number, string>();
+  const conflicted = wideIntegers.filter((entry) => entry.conflicted);
+  const table =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>).$objects
+      : undefined;
+  if (conflicted.length === 0 || !Array.isArray(table)) return restorations;
+  const view = new DataView(
+    decoderInput.buffer,
+    decoderInput.byteOffset,
+    decoderInput.byteLength,
+  );
+  const groups = new Map<number, { decimal: string; count: number }>();
+  for (const entry of conflicted) {
+    // Match the pinned decoder's 16-byte read on its own input copy: the
+    // signed first 8 bytes.
+    const fragment =
+      view.getInt32(entry.offset + 1) * 0x100000000 +
+      view.getUint32(entry.offset + 5);
+    const decimal = entry.value.toString();
+    const group = groups.get(fragment);
+    if (group === undefined) groups.set(fragment, { decimal, count: 1 });
+    else if (group.decimal === decimal) group.count += 1;
+    else group.count = -1;
+  }
+  for (const [fragment, group] of groups) {
+    if (group.count < 1) continue;
+    const positions: number[] = [];
+    for (let index = 0; index < table.length; index += 1)
+      if (table[index] === fragment) positions.push(index);
+    // Restore only when every fragment slot is one of these wide integers;
+    // a same-valued sibling makes the association ambiguous.
+    if (positions.length === group.count)
+      for (const index of positions) restorations.set(index, group.decimal);
+  }
+  return restorations;
+};
+
 /** Parse inert plist bytes, preserving data and dates with explicit typed values. */
 export const decodeKeyedArchiveBytes = (
   bytes: Buffer,
@@ -75,16 +123,18 @@ export const decodeKeyedArchiveBytes = (
   const binaryNumberMetadata = binary
     ? scanBinaryPlistNumberLiterals(bytes)
     : undefined;
+  const rewritten =
+    binaryExpansion !== undefined
+      ? decodeBinaryPlistNumbers(
+          bytes,
+          binaryNumberMetadata!,
+          binaryExpansion.binaryDatePayloadOffsets,
+        )
+      : bytes;
   const parsed =
     binaryExpansion !== undefined
       ? {
-          value: parseBinary(
-            decodeBinaryPlistNumbers(
-              bytes,
-              binaryNumberMetadata!,
-              binaryExpansion.binaryDatePayloadOffsets,
-            ),
-          ),
+          value: parseBinary(rewritten),
           numberLiterals: binaryNumberMetadata!.literals,
           omittedPrototypeKeys: binaryExpansion.binaryPrototypeKeyObserved
             ? null
@@ -107,10 +157,17 @@ export const decodeKeyedArchiveBytes = (
       numbers.project(value),
     ]),
   );
-  const objects = graph.objects.map((object) => ({
-    ...object,
-    value: numbers.project(object.value),
-  }));
+  const restoredIntegers = conflictedIntegerRestorations(
+    rewritten,
+    parsed.value,
+    binaryNumberMetadata?.wideIntegers ?? [],
+  );
+  const objects = graph.objects.map((object) => {
+    const decimal = restoredIntegers.get(object.id);
+    return decimal === undefined
+      ? { ...object, value: numbers.project(object.value) }
+      : { ...object, value: { $plist_type: "integer" as const, decimal } };
+  });
   return {
     archive_format: binary ? ("binary-plist" as const) : ("xml-plist" as const),
     ...graph,

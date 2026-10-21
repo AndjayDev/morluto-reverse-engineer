@@ -8,7 +8,12 @@ import { binaryPlistDateRepresentable } from "./BinaryPlistDate.js";
 export interface BinaryPlistNumberMetadata {
   readonly literals: PlistNumberLiterals;
   /** 16-byte integers the pinned plist decoder cannot decode correctly. */
-  readonly wideIntegers: readonly { offset: number; value: bigint }[];
+  readonly wideIntegers: readonly {
+    offset: number;
+    value: bigint;
+    /** Another table entry points inside the bytes an in-place rewrite touches. */
+    conflicted: boolean;
+  }[];
 }
 
 const binaryObjectEnd = (
@@ -65,7 +70,11 @@ export const scanBinaryPlistNumberLiterals = (
   bytes: Buffer,
 ): BinaryPlistNumberMetadata => {
   const output = createPlistNumberCollector();
-  const wideIntegers: { offset: number; value: bigint }[] = [];
+  const wideIntegers: {
+    offset: number;
+    value: bigint;
+    conflicted: boolean;
+  }[] = [];
   if (bytes.length < 40 || !hasBinaryPlistSignature(bytes))
     return { literals: output.result(true), wideIntegers };
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -104,17 +113,25 @@ export const scanBinaryPlistNumberLiterals = (
       return { literals: output.result(true), wideIntegers };
     objectOffsets.push(offset);
   }
-  const sortedOffsets = [...new Set(objectOffsets)].sort((a, b) => a - b);
-  for (let index = 0; index < sortedOffsets.length; index += 1) {
-    const offset = sortedOffsets[index];
-    if (offset === undefined) continue;
-    const nextOffset = sortedOffsets[index + 1] ?? offsetTable;
-    if (
-      binaryObjectEnd(bytes, offset, nextOffset, referenceWidth) === undefined
-    )
+  // A table entry may legally alias bytes inside another object's payload;
+  // plutil and Python accept the overlap. Validate each object against the
+  // offset table itself and skip an alias for number metadata instead of
+  // dropping every observed literal.
+  const containedOffsets = new Set<number>();
+  let coveredUntil = -1;
+  for (const offset of [...new Set(objectOffsets)].sort((a, b) => a - b)) {
+    if (offset < coveredUntil) {
+      containedOffsets.add(offset);
+      continue;
+    }
+    const end = binaryObjectEnd(bytes, offset, offsetTable, referenceWidth);
+    if (end === undefined)
       return { literals: output.result(true), wideIntegers: [] };
+    coveredUntil = end;
   }
+  const offsetSet = new Set(objectOffsets);
   for (const offset of objectOffsets) {
+    if (containedOffsets.has(offset)) continue;
     const marker = bytes[offset] ?? 0;
     const type = marker >> 4;
     if (type !== 1 && type !== 2) continue;
@@ -128,7 +145,16 @@ export const scanBinaryPlistNumberLiterals = (
         (view.getBigUint64(offset + 1) << 64n) | view.getBigUint64(offset + 9),
       );
       output.integer(value);
-      wideIntegers.push({ offset, value });
+      // An in-place rewrite touches the marker plus eight payload bytes; an
+      // alias inside that range would decode from rewritten bytes, so the
+      // archive reader restores a conflicted integer from its exact value.
+      let conflicted = false;
+      for (let distance = 1; distance < 9; distance += 1)
+        if (offsetSet.has(offset + distance)) {
+          conflicted = true;
+          break;
+        }
+      wideIntegers.push({ offset, value, conflicted });
     } else if (type === 1 && width > 4)
       return { literals: output.result(true), wideIntegers };
     else if (type === 2 && width === 4)
@@ -137,7 +163,7 @@ export const scanBinaryPlistNumberLiterals = (
       output.real(view.getFloat64(offset + 1));
     else if (type === 2) return { literals: output.result(true), wideIntegers };
   }
-  return { literals: output.result(), wideIntegers };
+  return { literals: output.result(containedOffsets.size > 0), wideIntegers };
 };
 
 /**
@@ -162,10 +188,10 @@ export const decodeBinaryPlistNumbers = (
     if (!binaryPlistDateRepresentable(bytes.readDoubleBE(offset)))
       unrepresentableDates.push(offset);
   }
-  if (metadata.wideIntegers.length === 0 && unrepresentableDates.length === 0)
-    return bytes;
+  const patchable = metadata.wideIntegers.filter((entry) => !entry.conflicted);
+  if (patchable.length === 0 && unrepresentableDates.length === 0) return bytes;
   const compatible = Buffer.from(bytes);
-  for (const { offset, value } of metadata.wideIntegers) {
+  for (const { offset, value } of patchable) {
     // Convert only the decoder's input copy to a double. Exact integer metadata
     // from the original bytes restores decimal text after the structural parse.
     compatible[offset] = 0x23;
