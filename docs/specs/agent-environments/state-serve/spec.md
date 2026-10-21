@@ -77,7 +77,9 @@ this increment: write tools are not served from the state.
   `mimeType` when given is `application/json`) and `data/get` (`{parts:
   [{kind: "data", data: rea_state}]}`). A `file://` uri whose host is neither
   empty nor `localhost`, or whose path is a UNC path, is `-32602` before
-  anything is opened. Anything else is `-32602`, including empty `parts`; a
+  anything is opened. A document that `data/get` would write back past 32 MiB,
+  once it adds the members a document may omit, is `-32602`, so a reported
+  state always loads again. Anything else is `-32602`, including empty `parts`; a
   failed download is `-32000`; errors never echo a uri or content and name a
   coarse failure category in `error.data.reason`. Calls run one at a time in
   arrival order across requests; every message of a batch is queued when the

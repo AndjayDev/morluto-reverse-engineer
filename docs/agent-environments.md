@@ -488,8 +488,10 @@ within 30 seconds, including reading the body; `mimeType`, when given, is
 `application/json`. A `file://` URL naming another host, or a UNC path such as
 `file:////server/share/state.json`, is refused before anything is opened, so a
 load never reaches a network share. A loaded document is at most 32
-MiB; an inline part also stays within the 4 MiB request body bound, so larger
-states arrive by `uri`. Anything else, including `{"parts": []}`, is `-32602
+MiB, and so is the state as `data/get` writes it back with the members a
+document may omit (`types`, `state_evidence_id`, record citations), so a
+reported state always loads again; an inline part also stays within the 4 MiB
+request body bound, so larger states arrive by `uri`. Anything else, including `{"parts": []}`, is `-32602
 invalid params`; a download that fails or answers a non-2xx status is
 `-32000`. Errors never echo the uri or the content; a file or download failure
 names its category in `error.data.reason`: `not-found`, `permission`,

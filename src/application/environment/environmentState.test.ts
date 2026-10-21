@@ -28,6 +28,7 @@ import {
   loadEnvironmentState,
   prepareServedState,
 } from "./environmentState.js";
+import { STATE_INTAKE_LIMIT_BYTES } from "./environmentStateDocument.js";
 import { EnvironmentStateStore } from "./environmentStateStore.js";
 
 const fixture = environmentStateServeFixture();
@@ -371,6 +372,48 @@ describe("EnvironmentStateStore", () => {
       }),
     );
     expect(refused.ok).toBe(false);
+    expect(store.snapshot()).toEqual(before);
+  });
+
+  it("refuses a document that data/get would write back past what data/add loads", () => {
+    const store = new EnvironmentStateStore(state);
+    const { rea_state: held } = store.snapshot();
+    // Without the members data/get adds back, the document fits only until they return.
+    const document = {
+      rea_state: {
+        version: held.version,
+        entities: held.entities.map(({ type, collection, id, fields }) => ({
+          type,
+          collection,
+          id,
+          fields: { ...fields },
+        })),
+        documents: held.documents,
+      },
+    };
+    const entity = document.rea_state.entities[0]!;
+    const { fields } = entity;
+    const idField = state.types.find(
+      (type) => type.collection_template === entity.type,
+    )?.id_field;
+    const text = Object.keys(fields).find(
+      (field) => field !== idField && typeof fields[field] === "string",
+    )!;
+    fields[text] = `${String(fields[text])}${"a".repeat(
+      STATE_INTAKE_LIMIT_BYTES -
+        Buffer.byteLength(JSON.stringify(document), "utf8"),
+    )}`;
+    expect(Buffer.byteLength(JSON.stringify(document), "utf8")).toBe(
+      STATE_INTAKE_LIMIT_BYTES,
+    );
+    const before = store.snapshot();
+    const replaced = store.replace(document);
+    expect(!replaced.ok && replaced.error.issues).toEqual([
+      expect.objectContaining({
+        reason: "out_of_range",
+        maximum: STATE_INTAKE_LIMIT_BYTES,
+      }),
+    ]);
     expect(store.snapshot()).toEqual(before);
   });
 });
