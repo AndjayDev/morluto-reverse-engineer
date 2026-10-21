@@ -7,6 +7,7 @@ import {
   isObject,
   lastSegmentValue,
   listItems,
+  pagesOnly,
   renderStateEntity,
   renderStateList,
   replaceAt,
@@ -158,14 +159,14 @@ export const checkItemPlan = (
   };
 };
 
-/** Whether every latest recording lists its whole collection in state order, and which counters equal the item count. */
+/** The latest recordings that list their whole collection in state order, and which counters equal the item count. */
 const listFacts = (
   context: StateGateContext,
   plan: StatePlan,
   union: FieldUnion,
-): { readonly all: boolean; readonly counters: string[] } => {
+): { readonly whole: ReadonlySet<number>; readonly counters: string[] } => {
   const field = context.idField(plan.type);
-  let all = true;
+  const whole = new Set<number>();
   let counters: string[] | undefined;
   for (const record of plan.latest)
     context.withBody(record.ordinal, (body) => {
@@ -173,28 +174,27 @@ const listFacts = (
         body === undefined ? undefined : listItems(body, plan.pointer);
       if (body === undefined || items === undefined) return;
       items.forEach((item) => union.add(item));
-      // Once a list cannot be the whole collection, its membership is not compared again.
-      if (all && record.query === undefined) {
-        const ids = items.map((item) => scalarText(item[field]) ?? "");
-        const expected = context
-          .inCollection(plan.type, collectionPathOf(record, false))
-          .map((entity) => entity.id);
-        if (!same(ids, expected)) all = false;
-      } else all = false;
       const parent = plan.pointer === "" || !isObject(body) ? {} : body;
       const counted = Object.keys(parent).filter(
         (name) => isItemTotal(name) && countOf(parent[name]) !== undefined,
       );
-      // A total that differs from the number listed, or a next page, shows the list is partial.
+      const names = counted.filter((name) => parent[name] === items.length);
+      counters = (counters ?? names).filter((name) => names.includes(name));
+      // Only a line that pages at most can hold its whole collection; a total that differs from
+      // the number listed, or a next page, shows it is partial.
       if (
+        !pagesOnly(record.query) ||
         counted.some((name) => countOf(parent[name]) !== items.length) ||
         Object.keys(parent).some((name) => continues(name, parent[name]))
       )
-        all = false;
-      const names = counted.filter((name) => parent[name] === items.length);
-      counters = (counters ?? names).filter((name) => names.includes(name));
+        return;
+      const ids = items.map((item) => scalarText(item[field]) ?? "");
+      const expected = context
+        .inCollection(plan.type, collectionPathOf(record, false))
+        .map((entity) => entity.id);
+      if (same(ids, expected)) whole.add(record.ordinal);
     });
-  return { all, counters: (counters ?? []).sort(compare) };
+  return { whole, counters: (counters ?? []).sort(compare) };
 };
 
 const nameTokens = (name: string): string[] =>
@@ -202,17 +202,21 @@ const nameTokens = (name: string): string[] =>
     .split(/[_\-\s]|(?<=[a-z0-9])(?=[A-Z])/u)
     .map((token) => token.toLowerCase());
 
-/** Item totals, including compact `totalcount`/`itemcount`; page counts and account IDs are excluded. */
+const LISTED_NOUNS = new Set(["elements", "entries", "items", "results"]);
+
+/** Item totals, including compact `totalcount`/`itemcount` and `numberOfElements`; page counts and account IDs are excluded. */
 const isItemTotal = (name: string): boolean => {
   const tokens = nameTokens(name);
   return (
-    tokens.some(
+    (tokens.some(
       (token) =>
         token === "total" ||
         token === "count" ||
         token === "totalcount" ||
         token === "itemcount",
-    ) &&
+    ) ||
+      (tokens.includes("number") &&
+        tokens.some((token) => LISTED_NOUNS.has(token)))) &&
     !tokens.some(
       (token) => token === "page" || token === "pages" || token === "per",
     )
@@ -253,7 +257,7 @@ const listReproduces = (
     readonly fields: string[];
     readonly pointer: string;
     readonly counters: string[];
-    readonly all: boolean;
+    readonly whole: ReadonlySet<number>;
   },
   record: StateRecordFacts,
 ): boolean => {
@@ -265,7 +269,7 @@ const listReproduces = (
     const observed = new Map(
       items.map((item) => [scalarText(item[field]) ?? "", item]),
     );
-    const members = view.all
+    const members = view.whole.has(record.ordinal)
       ? context.inCollection(plan.type, collectionPathOf(record, false))
       : items.flatMap((item) => {
           const entity = context.entity(
@@ -293,15 +297,16 @@ export const checkListPlan = (
   plan: StatePlan,
 ): StateView => {
   const union = new FieldUnion();
-  const { all, counters } = listFacts(context, plan, union);
+  const { whole, counters } = listFacts(context, plan, union);
   context.retain(union.bytes);
   const view = {
     tool: plan.tool.name,
     fields: union.fields,
     pointer: plan.pointer,
     counters,
-    all,
+    whole,
   };
+  const all = plan.latest.every((record) => whole.has(record.ordinal));
   if (
     !plan.latest.every((record) => listReproduces(context, plan, view, record))
   )
@@ -314,6 +319,13 @@ export const checkListPlan = (
     fields: union.fields,
     required_fields: union.required,
     membership: all ? "all" : "recorded",
+    ...(all || whole.size === 0
+      ? {}
+      : {
+          all_record_ordinals: plan.latest
+            .map((record) => record.ordinal)
+            .filter((ordinal) => whole.has(ordinal)),
+        }),
     counters,
     checked_record_ordinals: plan.latest.map((record) => record.ordinal),
   };
