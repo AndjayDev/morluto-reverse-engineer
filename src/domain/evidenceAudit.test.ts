@@ -161,3 +161,110 @@ describe("evidence bundle audit", () => {
     expect(JSON.stringify(result.limitations)).toContain("safe to publish");
   });
 });
+
+describe("evidence bundle audit leak rules", () => {
+  it("does not flag header names that were already redacted", () => {
+    const bundle = createEvidenceBundle([
+      record({
+        headers: [{ name: "Authorization", value: null, redacted: true }],
+      }),
+    ]);
+    const result = auditEvidenceBundle(bundle);
+    expect(result.findings).toEqual([]);
+    expect(result.failures).toBe(0);
+  });
+
+  it("still flags a header whose value was not redacted", () => {
+    const bundle = createEvidenceBundle([
+      record({
+        headers: [{ name: "Authorization", value: "secret-token-value" }],
+      }),
+    ]);
+    const result = auditEvidenceBundle(bundle);
+    expect(result.failures).toBe(1);
+    expect(result.findings[0]!.rule_id).toBe("credential-header-value");
+    expect(result.findings[0]!.pointer).toBe(
+      "/normalized_result/headers/0/value",
+    );
+  });
+
+  it("audits subject paths and caller parameters, not just results", () => {
+    const withSubject = createEvidence(
+      {
+        path: "/Users/zhangsan/Downloads/prog.elf",
+        sha256: "a".repeat(64),
+        format: "elf",
+        architecture: "x86_64",
+      },
+      PROVIDER,
+      {
+        operation: "observe",
+        parameters: { token: "ghp_" + "a".repeat(36) },
+        result: { ok: true },
+        confidence: "observed",
+        authority: "shipped-artifact",
+      },
+    );
+    const result = auditEvidenceBundle(createEvidenceBundle([withSubject]));
+    const pointers = result.findings.map((finding) => finding.pointer);
+    expect(pointers).toContain("/subject/local_path");
+    expect(pointers).toContain("/parameters/token");
+    expect(
+      result.findings.some(
+        (finding) => finding.rule_id === "credential-github-token",
+      ),
+    ).toBe(true);
+  });
+
+  it("treats decompiler operations as decompiled surfaces", () => {
+    const decompiled = createEvidence(undefined, PROVIDER, {
+      operation: "procedure_pseudo_code",
+      parameters: { address: "0x1000" },
+      result: { code: "int main(void) { return 0; }" },
+      confidence: "observed",
+      authority: "shipped-artifact",
+    });
+    const result = auditEvidenceBundle(createEvidenceBundle([decompiled]));
+    const pointers = result.findings
+      .filter((finding) => finding.rule_id === "decompiled-payload")
+      .map((finding) => finding.pointer);
+    expect(pointers).toEqual(["/normalized_result/code"]);
+  });
+
+  it("matches non-ASCII home directory names", () => {
+    const bundle = createEvidenceBundle([
+      record({ note: "dumped to /Users/张三/Desktop/out.bin" }),
+    ]);
+    const result = auditEvidenceBundle(bundle);
+    expect(result.findings[0]!.rule_id).toBe("local-path-posix-home");
+    expect(JSON.stringify(result)).not.toContain("张三");
+  });
+
+  it("redacts a credential used as an object key instead of printing it", () => {
+    const secretKey = "ghp_" + "b".repeat(36);
+    const bundle = createEvidenceBundle([
+      record({ [secretKey]: "dumped to /Users/alice/Desktop/out.bin" }),
+    ]);
+    const result = auditEvidenceBundle(bundle);
+    expect(JSON.stringify(result)).not.toContain(secretKey);
+    expect(result.findings[0]!.pointer).toMatch(
+      /^\/normalized_result\/<redacted-[0-9a-f]{8}>$/,
+    );
+  });
+
+  it("flags Stripe, Slack, and PEM private key material", () => {
+    const bundle = createEvidenceBundle([
+      record({
+        stripe: "sk_live_" + "a".repeat(24),
+        slack: "xoxb-" + "1234567890".repeat(2),
+        pem: "-----BEGIN RSA PRIVATE KEY-----",
+      }),
+    ]);
+    const result = auditEvidenceBundle(bundle);
+    expect(result.findings.map((finding) => finding.rule_id).sort()).toEqual([
+      "credential-private-key",
+      "credential-slack-token",
+      "credential-stripe-live-key",
+    ]);
+  });
+});
