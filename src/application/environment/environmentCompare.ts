@@ -1,15 +1,7 @@
 import { fromJsonSchema } from "@modelcontextprotocol/server";
-import { z } from "zod";
-import { isJsonLike } from "../../domain/analysisView/EnvironmentManifestAccumulator.js";
-import {
-  mediaTypeEssence,
-  readRecordedRequestLine,
-} from "../../domain/analysisView/webNetworkRouteTemplates.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
-import { parseExactJson } from "../../domain/exactJsonNumber.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import { err, ok, type Result } from "../../domain/result.js";
-import type { WebNetworkCaptureRecord } from "../../domain/webNetworkCapture.js";
 import {
   compareAnswers,
   DIFFERENCE_CATEGORIES,
@@ -29,17 +21,20 @@ import {
   collectionScope,
   matchProbeRequest,
   parameterScopes,
-  type ProbeRequest,
   type ProbeToolCall,
 } from "./environmentCompareMatch.js";
 import {
+  probeRequests,
+  requestBody,
+  type ProbeStep,
+  type UnobservedRecord,
+} from "./environmentCompareProbe.js";
+import {
   inputError,
   parseCaptureEvidence,
-  recordedExchange,
   replayedBody,
   type EnvironmentManifestTool,
   type EnvironmentSource,
-  type ReplayedBody,
 } from "./environmentSource.js";
 import {
   selectsRecordedLine,
@@ -90,6 +85,8 @@ export interface CompareProbeReport {
   readonly id_conflicts: number;
   readonly normalised: Normalised;
   readonly results: CompareStep[];
+  /** Records left uncompared, in probe order, each with its reason. */
+  readonly unobserved: UnobservedRecord[];
 }
 
 export interface CompareReport {
@@ -106,6 +103,8 @@ export interface CompareReport {
     readonly equal: number;
     readonly agreement: number | null;
     readonly agreement_ignoring_order: number | null;
+    /** Probe records left uncompared, outside the steps agreement counts. */
+    readonly unobserved: number;
     readonly categories: Record<DifferenceCategory, number>;
     readonly normalised: Normalised;
   };
@@ -113,82 +112,19 @@ export interface CompareReport {
   readonly probes: CompareProbeReport[];
 }
 
-const startedSchema = z.object({ startedDateTime: z.string() });
-const postDataSchema = z.object({
-  request: z.object({
-    postData: z.object({ mimeType: z.string(), text: z.string() }),
-  }),
-});
-
-const startedMs = (record: WebNetworkCaptureRecord): number => {
-  const started = startedSchema.safeParse(record.reported);
-  const ms = started.success ? Date.parse(started.data.startedDateTime) : NaN;
-  return Number.isFinite(ms) ? ms : 0;
-};
-
-/** The JSON a request body holds, its text when it is not JSON, or undefined without one. */
-const requestBody = (
-  record: WebNetworkCaptureRecord,
-): JsonValue | undefined => {
-  const parsed = postDataSchema.safeParse(record.reported);
-  if (!parsed.success) return undefined;
-  const { mimeType, text } = parsed.data.request.postData;
-  return isJsonLike(mediaTypeEssence(mimeType))
-    ? (parseExactJson(text) ?? text)
-    : text;
-};
-
-/** The application's body as an environment answer carries it: JSON, text, or null when there is none or it is empty text. */
-const liveBody = (body: ReplayedBody): JsonValue => {
-  if (body.kind === "json") return body.value;
-  if (body.kind === "none") return null;
-  if (body.kind === "base64") return body.encoded;
-  return body.text === "" ? null : body.text;
-};
-
-/** A body over the replay limit, text or bytes: only a prefix is known, so only the status compares. */
-export const isCut = (body: ReplayedBody): boolean =>
-  body.kind === "cut" || (body.kind === "base64" && !body.whole);
-
-/** The probe's requests in the order they were made, each with the application's answer. */
-const probeRequests = (
-  records: readonly WebNetworkCaptureRecord[],
-): { ordinal: number; request: ProbeRequest; live: Answer }[] =>
-  [...records]
-    .sort(
-      (left, right) =>
-        startedMs(left) - startedMs(right) || left.ordinal - right.ordinal,
-    )
-    .flatMap((record) => {
-      const line = readRecordedRequestLine(record.reported, true, () => true);
-      const exchange = recordedExchange(record);
-      if (line === null || line.kind !== "line" || exchange === undefined)
-        return [];
-      const body = replayedBody(exchange);
-      return [
-        {
-          ordinal: record.ordinal,
-          request: {
-            method: line.method,
-            path: exchange.path,
-            query: exchange.query,
-            body: requestBody(record),
-          },
-          live: {
-            status: exchange.status,
-            body: liveBody(body),
-            cut: isCut(body),
-          },
-        },
-      ];
-    });
-
-const NORMALISED_KEYS = ["ids", "clocks", "generated", "large_bodies"] as const;
+const NORMALISED_KEYS = [
+  "ids",
+  "clocks",
+  "generated",
+  "large_bodies",
+  "unobserved_bodies",
+] as const;
 const emptyNormalised = (): Normalised => ({
   ids: 0,
   clocks: 0,
   generated: 0,
   large_bodies: 0,
+  unobserved_bodies: 0,
 });
 
 const isSuccess = (status: number | null): boolean =>
@@ -304,7 +240,7 @@ const stepOf = (
 const compareStep = (
   run: ProbeRun,
   manifest: EnvironmentSource["manifest"],
-  probe: { ordinal: number; request: ProbeRequest; live: Answer },
+  probe: ProbeStep,
 ): CompareStep => {
   const { request, live } = probe;
   const base = {
@@ -375,19 +311,20 @@ const compareStep = (
 };
 
 const probeReport = (
-  label: string,
-  evidenceId: string,
+  probe: { readonly label: string; readonly evidenceId: string },
   run: ProbeRun,
   results: CompareStep[],
+  unobserved: UnobservedRecord[],
 ): CompareProbeReport => ({
-  label,
-  evidence_id: evidenceId,
+  label: probe.label,
+  evidence_id: probe.evidenceId,
   steps: results.length,
   equal: results.filter((step) => step.equal).length,
   ids_mapped: run.map.size,
   id_conflicts: run.map.conflicts,
   normalised: run.normalised,
   results,
+  unobserved,
 });
 
 const summaryOf = (
@@ -415,6 +352,7 @@ const summaryOf = (
     agreement_ignoring_order: ratio(
       steps.filter((step) => step.equal_ignoring_order).length,
     ),
+    unobserved: probes.reduce((sum, probe) => sum + probe.unobserved.length, 0),
     categories,
     normalised,
   };
@@ -481,7 +419,13 @@ export const compareEnvironment = (input: {
   for (const [index, probe] of input.probes.entries()) {
     // A probe's request bodies are its call arguments, which a replay projection of a browser capture drops.
     const capture = parseCaptureEvidence(operation, probe.value, "manifest");
-    if (!capture.ok)
+    // Without response bodies only statuses would compare, which an agreement figure would overstate.
+    const problem = !capture.ok
+      ? capture.error.message
+      : capture.value.responseBodies
+        ? undefined
+        : "a browser probe needs capture.network.response_body selected, or only statuses would compare.";
+    if (!capture.ok || problem !== undefined)
       return err(
         inputError(
           operation,
@@ -489,10 +433,10 @@ export const compareEnvironment = (input: {
             {
               path: ["probe", index],
               reason: "invalid_value",
-              message: `${probe.label}: ${capture.error.message}`,
+              message: `${probe.label}: ${problem}`,
             },
           ],
-          "A probe file is not capture Evidence.",
+          "A probe file cannot be compared.",
         ),
       );
     const store =
@@ -506,11 +450,17 @@ export const compareEnvironment = (input: {
       map: new IdMap(),
       normalised: emptyNormalised(),
     };
-    const results = probeRequests(capture.value.records).map((request) =>
-      compareStep(run, source.manifest, request),
+    const { steps, unobserved } = probeRequests(capture.value.records);
+    const results = steps.map((step) =>
+      compareStep(run, source.manifest, step),
     );
     probes.push(
-      probeReport(probe.label, capture.value.evidenceId, run, results),
+      probeReport(
+        { label: probe.label, evidenceId: capture.value.evidenceId },
+        run,
+        results,
+        unobserved,
+      ),
     );
   }
   return ok({

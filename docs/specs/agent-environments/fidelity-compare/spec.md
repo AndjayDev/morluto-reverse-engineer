@@ -22,8 +22,12 @@ credentials and resets it between sequences.
 - Each probe is one sequence run against a freshly reset application. Before each probe the environment's state is reset,
   so sequences are independent on both sides.
 - Requests are taken in the probe's order (start time, then ordinal). A request is matched to the manifest tool of the
-  same method whose path template it fits with the most literal segments; format-rule parameters must fit their format.
+  same method whose path template it fits with the most literal segments; format-rule parameters must fit their format
+  once percent-decoded, as replay reads them.
   Path values, query values the tool takes and a JSON body become the tool's arguments.
+- A record without a usable request line (a redacted URL, a transaction the capture cannot attribute, an unparseable
+  URL or no method) is not replayed, and a request with no recorded answer is not compared. Each is listed per probe
+  with its reason and left out of agreement.
 - A request no tool matches is reported `no-tool`; a matched tool the environment does not offer, such as a write it
   withholds, is reported `not-served`. Neither is answered.
 - Ids differ between a re-seeded application and the capture. The comparison maps them:
@@ -44,18 +48,21 @@ credentials and resets it between sequences.
     like), which count items rather than name one.
     A path value the map does not know, and the environment's state does not hold, is reported `unmapped-id`.
 - A call is checked against the served tool's input schema first, as the MCP server checks it; a call it refuses is
-  reported `refused`. A browser probe keeps its request bodies.
+  reported `refused`. A browser probe keeps its request bodies; one captured without response bodies is refused, since
+  only statuses would compare.
 - Answers compare after normalisation: empty response text equals no body (a JSON empty string stays one); mapped ids
   compare equal, in scalar sets as well, an entity's own identity within the call's collection and any other id by the
   probe's mapping; two clock values (ISO-8601 strings, or epoch numbers under
   time-named fields) compare by format only; two different generated values (both UUIDs, or both of one length and the
   same character classes with a digit) that neither side maps compare equal and are counted. A body over the replay
-  limit, text or binary, compares by status only.
+  limit, text or binary, compares by status only, as does a live body the probe did not record, unless the answer has
+  none by definition (204, 205, 304, or an answer to `HEAD`). Both are counted.
 - A step agrees when the statuses are equal and the normalised bodies are. Differences are categorised: `status`,
   `missing-field` (the application had it), `extra-field`, `value`, `length`, `order`, `clock-format`, `refused` (the
   environment refused the call), `not-served`, `no-tool` and `unmapped-id`, each with a JSON pointer and short values.
 - The report gives agreement overall, per probe and per tool, agreement ignoring item order beside it, the counts per
-  category, the ids mapped and the values normalised, and each step's differences (at most 20 per step).
+  category, the ids mapped and the values normalised, the records left uncompared, and each step's differences (at most
+  20 per step).
 
 ## Non-goals
 

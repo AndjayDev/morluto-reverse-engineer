@@ -42,6 +42,8 @@ export interface Normalised {
   generated: number;
   /** Live bodies over the replay limit, compared by status only. */
   large_bodies: number;
+  /** Live bodies the probe did not record, compared by status only. */
+  unobserved_bodies: number;
 }
 
 /** At most this many differences are kept per step. */
@@ -104,6 +106,7 @@ class Differ {
     clocks: 0,
     generated: 0,
     large_bodies: 0,
+    unobserved_bodies: 0,
   };
 
   /** The answer's own entities: where they sit (the object, or the array of them, at `at`) and the collection the call names, whose own mapping their identities compare by. */
@@ -286,6 +289,8 @@ export interface Answer {
   readonly body: JsonValue;
   /** Set when the body was over the replay limit, so only a prefix is known. */
   readonly cut?: boolean;
+  /** Set when the probe did not record the body, so only the status is known. */
+  readonly unobserved?: boolean;
 }
 
 /** Compare a live answer with the environment's after normalisation. */
@@ -304,6 +309,7 @@ export const compareAnswers = (
       env: String(env.status),
     });
   if (live.cut === true) differ.normalised.large_bodies += 1;
+  else if (live.unobserved === true) differ.normalised.unobserved_bodies += 1;
   else differ.value(live.body, env.body, "");
   return { differences: differ.differences, normalised: differ.normalised };
 };

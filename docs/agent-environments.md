@@ -709,7 +709,8 @@ Each `--probe` is capture Evidence (`inspect-web-network-capture` of a HAR, or `
 sequence made against the live application, seeded as it was for the capture and reset before the sequence. The command
 makes no network call: whoever records the probes drives the application with its own credentials. For each probe it
 resets the environment's state, takes the requests in the order they were made, matches each to the manifest tool of the
-same method whose path template fits with the most literal segments (a format-rule parameter must fit its format),
+same method whose path template fits with the most literal segments (a format-rule parameter must fit its format once
+percent-decoded),
 answers it as the served environment would, and compares that answer with the application's.
 
 A re-seeded application holds the same entities under other ids, so the comparison maps them. Objects in the two answers
@@ -741,6 +742,12 @@ with a JSON pointer and both values cut short:
 | `not-served`    | The request's tool is one the environment does not offer, such as a withheld write                           |
 | `no-tool`       | No manifest tool matches the request                                                                         |
 | `unmapped-id`   | The application answered with success and the environment did not, for a path id the comparison never mapped |
+
+What a probe did not observe is not counted as the application's behaviour. A record without a usable request line,
+such as a redacted URL or a transaction the capture cannot attribute, is not replayed, and a request with no recorded
+answer is not compared: each probe lists them under `unobserved` with the reason, and the summary counts them. A live
+body the probe did not record compares by status only and is counted as `unobserved_bodies`, unless the answer never
+carries one (204, 205, 304, `HEAD`). A browser probe captured without `capture.network.response_body` is refused.
 
 Agreement covers only the calls the probes make, after the mapping the answers allow. Values compared by form, clocks
 and generated values, can still differ in content, and an equal answer after a write shows the state matched for that

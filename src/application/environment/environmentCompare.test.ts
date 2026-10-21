@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  analysisViewCaptureEvidence,
+  environmentManifestCaptureFixture,
   timedCaptureEvidence,
   type TimedCaptureRow,
 } from "../../../tests/fixtures/analysisView.js";
@@ -16,10 +18,14 @@ import {
   book,
   renamedBook,
 } from "../../../tests/fixtures/environmentStateWrites.js";
-import { scenarioCaptureEvidence } from "../../../tests/fixtures/browserScenarioCapture.js";
-import { compareEnvironment, isCut } from "./environmentCompare.js";
+import {
+  scenarioCaptureEvidence,
+  scenarioHeaderOnlyCaptureEvidence,
+} from "../../../tests/fixtures/browserScenarioCapture.js";
+import { compareEnvironment } from "./environmentCompare.js";
 import { environmentArguments, IdMap } from "./environmentCompareIds.js";
 import { matchProbeRequest } from "./environmentCompareMatch.js";
+import { isCut } from "./environmentCompareProbe.js";
 import { parseCaptureEvidence } from "./environmentSource.js";
 
 const fixture = environmentStateServeFixture(timedCaptureEvidence(BOOK_ROWS));
@@ -73,6 +79,17 @@ describe("matchProbeRequest", () => {
         body: undefined,
       }),
     ).toBeUndefined();
+  });
+
+  it("fits a format-rule parameter by its decoded value, as replay matches it", () => {
+    const item = matchProbeRequest(source.manifest, {
+      method: "GET",
+      path: "/api/books/%31",
+      query: null,
+      body: undefined,
+    });
+    expect(item?.tool.path_template).toBe("/api/books/{numeric}");
+    expect(item?.args).toEqual({ id: "1" });
   });
 });
 
@@ -272,5 +289,65 @@ describe("browser probes", () => {
     };
     expect(JSON.stringify(post("manifest"))).toContain("postData");
     expect(JSON.stringify(post())).not.toContain("postData");
+  });
+});
+
+describe("what a probe did not observe", () => {
+  const at = (second: number): string =>
+    new Date(
+      Date.parse("2026-10-20T09:00:00.000Z") + second * 1000,
+    ).toISOString();
+  const exchange = (
+    second: number,
+    method: string,
+    url: string | null,
+    status: number,
+  ) => ({
+    startedDateTime: at(second),
+    request: { method, url },
+    response: { status, content: { mimeType: "application/json" } },
+  });
+  const run = (value: unknown) =>
+    compareEnvironment({
+      source,
+      captureValue: fixture.capture,
+      probes: [{ label: "probe-1", value }],
+      operation: "environment-compare",
+    });
+
+  it("compares an unrecorded body by status only and lists the records it could not compare", () => {
+    const report = run(
+      analysisViewCaptureEvidence(
+        environmentManifestCaptureFixture([
+          exchange(0, "GET", "http://app.example/api/books/1", 200),
+          exchange(1, "GET", null, 200),
+          { startedDateTime: at(2) },
+          exchange(3, "GET", "http://app.example/api/books", 0),
+          // A 204 carries no body, so its missing body is known to be empty.
+          exchange(4, "DELETE", "http://app.example/api/books/2", 204),
+        ]),
+      ),
+    );
+    if (!report.ok) throw report.error;
+    expect(report.value.probes[0]?.unobserved).toEqual([
+      { ordinal: 1, reason: "url-redacted" },
+      { ordinal: 2, reason: "request-unavailable" },
+      { ordinal: 3, reason: "no-response" },
+    ]);
+    expect(report.value.summary).toMatchObject({
+      steps: 2,
+      equal: 2,
+      unobserved: 3,
+    });
+    expect(report.value.summary.normalised.unobserved_bodies).toBe(1);
+  });
+
+  it("refuses a browser probe captured without response bodies", () => {
+    const report = run(scenarioHeaderOnlyCaptureEvidence());
+    expect(report.ok).toBe(false);
+    if (report.ok) return;
+    expect(JSON.stringify(report.error)).toContain(
+      "probe-1: a browser probe needs capture.network.response_body selected",
+    );
   });
 });

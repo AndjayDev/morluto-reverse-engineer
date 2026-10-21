@@ -41,6 +41,7 @@ describe("compareAnswers", () => {
       clocks: 1,
       generated: 2,
       large_bodies: 0,
+      unobserved_bodies: 0,
     });
   });
 
@@ -123,6 +124,21 @@ describe("compareAnswers", () => {
     );
     expect(result.differences).toEqual([]);
     expect(result.normalised.large_bodies).toBe(1);
+  });
+
+  it("compares a live body the probe did not record by status only and counts it", () => {
+    const unrecorded = { status: 200, body: null, unobserved: true };
+    const result = compareAnswers(
+      unrecorded,
+      { status: 200, body: { id: 1 } },
+      new IdMap(),
+    );
+    expect(result.differences).toEqual([]);
+    expect(result.normalised.unobserved_bodies).toBe(1);
+    expect(
+      compareAnswers(unrecorded, { status: 404, body: null }, new IdMap())
+        .differences,
+    ).toEqual([{ category: "status", pointer: "", live: "200", env: "404" }]);
   });
 });
 

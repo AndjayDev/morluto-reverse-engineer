@@ -88,8 +88,9 @@ const fitOf = (
         return undefined;
       literals += 1;
     } else if (
+      // Replay matches a path value decoded, so its format is the decoded value's.
       FORMAT_RULES.has(param.rule) &&
-      segmentRule(segment) !== param.rule
+      segmentRule(decodedPathSegment(segment)) !== param.rule
     )
       return undefined;
     else if (segment === "") return undefined;

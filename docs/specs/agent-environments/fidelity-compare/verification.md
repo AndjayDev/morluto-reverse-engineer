@@ -35,7 +35,7 @@ branch merged.
 | Environment | Steps | Agreement | Ignoring order | Against its own capture |
 | ----------- | ----: | --------: | -------------: | ----------------------: |
 | NetBox      |   370 |     99.2% |          99.2% |                    100% |
-| Komga       |   356 |     96.9% |          96.9% |                   96.6% |
+| Komga       |   356 |     93.8% |          93.8% |                   93.1% |
 | Mealie      |   301 |     96.0% |          97.0% |                   97.1% |
 | Shlink      |   133 |     89.5% |          92.5% |                   92.4% |
 | n8n         |   202 |     74.8% |          87.6% |                   87.5% |
@@ -45,7 +45,7 @@ The last column compares each environment with its own capture as the probe: wha
 session it was built from. The disagreements fall into four groups.
 
 - Environment gaps, the ones to fix:
-  - write tools the environment withholds, and the reads after them: readlists (Komga), recipes (Mealie), short URLs
+  - write tools the environment withholds, and the reads after them: readlists and collections (Komga), recipes (Mealie), short URLs
     (Shlink), workflow and tag writes (n8n);
   - preconditions: n8n refuses to delete a workflow that is not archived and the environment deletes it;
   - lists: a create does not appear in a list that keeps its recorded members (Komga), a filtered list is answered
@@ -92,3 +92,18 @@ A third round located the answer's own entities where the served environment doe
 pointer or the write's response pointer, so an entity inside an envelope keeps its collection's mapping. Its test fails
 on the previous head; the gates passed again (domain and services 7509, boundaries 80, conformance, `jscpd` 3.46%) and
 the six environments again compare exactly as in the table.
+
+A fourth round, on Greptile's next review, kept what a probe did not observe out of the agreement figures. Records
+without a usable request line, and requests without a recorded answer, are listed per probe with the reason and left
+uncompared. A live body the probe did not record compares by status only and is counted. A browser probe captured
+without response bodies is refused. A format-rule path parameter fits by its decoded value, as replay reads it. The
+branch also merged the write-plan branch at 1d1c4787, whose gate no longer confirms a write by a read of a state that a
+later write replaced. Each new test fails on the previous head. The gates passed again (domain and services
+7647, 5 pre-existing skips; the compare, export, serve and analysis-view boundaries 69; conformance 279; `jscpd` 3.44%).
+
+On the same probes, the six environments have no unobserved records or bodies, and five compare exactly as before.
+Komga now withholds its collection create and patch. The only read the gate could check them by is the 404 after the
+collection is deleted, because the read after the patch is the patch's own observation. Its agreement falls from
+96.9% to 93.8%: the three creates and two patches the probes make are not served, and the six reads and deletes of
+those collections that follow fail. Against its own capture it falls from 96.6% to 93.1%. The table shows the new
+figures.

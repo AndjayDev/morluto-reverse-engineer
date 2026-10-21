@@ -464,7 +464,8 @@ Evidence of one call sequence recorded against the application after a reset; th
 each probe, every request is answered as the served environment answers it, and the answer is compared with the
 application's after ids are mapped and clocks and generated values are normalised. The command reads files only and
 makes no network call. It prints the report and exits `0`, or prints a structured `invalid_request` error and exits `1`
-for the same pair refusals as `environment-serve` or a probe that is not capture Evidence. See
+for the same pair refusals as `environment-serve`, a probe that is not capture Evidence, or a browser probe captured
+without response bodies. See
 [agent environments](agent-environments.md#measure-fidelity-against-the-application) for the report.
 
 ```sh

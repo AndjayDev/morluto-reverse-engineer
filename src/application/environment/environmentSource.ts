@@ -225,6 +225,8 @@ export const parseCaptureEvidence = (
     readonly evidenceId: string;
     readonly captureKind: EnvironmentCaptureKind;
     readonly captureSha256: string | null;
+    /** Whether the capture recorded response bodies: a browser scenario does only when they were selected. */
+    readonly responseBodies: boolean;
   },
   AnalysisError
 > => {
@@ -248,6 +250,7 @@ export const parseCaptureEvidence = (
         captureSha256: definition.success
           ? definition.data.scenario_sha256
           : null,
+        responseBodies: scenario.data.scenario.network_content.response_body,
       });
   } else if (evidence.value.operation === "inspect_web_network_capture") {
     const records = immutableJsonSnapshotMember(normalized, "records");
@@ -280,6 +283,7 @@ export const parseCaptureEvidence = (
         evidenceId,
         captureKind: "web-network-capture",
         captureSha256: capture.data.artifact.sha256,
+        responseBodies: true,
       });
     }
   }
