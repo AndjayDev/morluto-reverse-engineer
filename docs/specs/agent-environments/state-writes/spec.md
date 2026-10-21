@@ -195,8 +195,9 @@ refuses to answer with.
 - A check exercises the write tools that changed its entity or collection
   since the previous check of it, less those a later write replaced: a create
   or delete replaces an entity's earlier writes, an update the earlier updates
-  whose fields it rewrites, and a write left with no changed entity in a
-  collection no longer counts there. A pass confirms them and a mismatch
+  whose every changed field, sent or derived, it overwrites (an increment adds
+  to its field rather than overwriting it), and a write left with no changed
+  entity in a collection no longer counts there. A pass confirms them and a mismatch
   contradicts them.
 - A mismatch after an unmodelled write that followed those writes is checked
   only on the members they sent: such a write may explain the rest.
@@ -266,7 +267,8 @@ recording instead.
 
 A create in a collection held under more than one spelling (`acme1` and
 `%61cme1`) goes to the one the call spells verbatim, as item calls choose their
-entity; a collection keeps its spelling after its last entity is deleted. `data/add` refuses a document that `data/get` would write back past the
+entity; a collection keeps its spelling after its last entity is deleted, until
+a reset or load starts from the spellings of the state it installs. `data/add` refuses a document that `data/get` would write back past the
 32 MiB intake limit once it adds the members a document may omit, such as
 `types` and the state Evidence id.
 

@@ -112,6 +112,11 @@ export type EffectResult =
       readonly entity?: WrittenEntity;
       /** The fields an update wrote; a create writes the whole entity. */
       readonly fields?: readonly string[];
+      /** The fields an update sent or changed, derived ones included, and those of them its increments add to. */
+      readonly changed?: {
+        readonly fields: readonly string[];
+        readonly accumulated: readonly string[];
+      };
       readonly inserted?: string;
     }
   | {
@@ -406,7 +411,16 @@ export const applyUpdate = (
   const sent = Object.keys(body).filter(
     (member) => member !== draft.plan.body?.identity,
   );
-  return { kind: "applied", targets, entity: target, fields: sent };
+  const derived = Object.keys(written.value).filter(
+    (field) => !same(written.value[field], entity.fields[field]),
+  );
+  const changed = {
+    fields: [...new Set([...sent, ...derived])],
+    accumulated: draft.plan.rules.flatMap((rule) =>
+      rule.rule === "increment" ? [rule.field] : [],
+    ),
+  };
+  return { kind: "applied", targets, entity: target, fields: sent, changed };
 };
 
 /** Apply a recorded delete: the held entity leaves its collection. */

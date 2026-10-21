@@ -128,63 +128,98 @@ export const servedLine = (
 
 /** Modelled writes per target since its last check, with the fields each wrote (null: all). */
 export type TouchedTargets = Map<string, Map<string, readonly string[] | null>>;
-/** Per collection target, the entities each write changed there since its last check, with the fields it wrote (null: all). */
-export type WrittenEntities = Map<
-  string,
-  Map<string, Map<string, readonly string[] | null>>
->;
 
-/** Whether a write replaces an earlier one's effect: a create or delete replaces every field, an update those it rewrites. */
+/** The fields a write changed on an entity: a create or delete all of them (null), an update those it sent or derived. */
+type ChangedFields = readonly string[] | null;
+
+/** Whether a later write replaces an earlier one's effect: it changes the whole entity, or overwrites every field the earlier changed (an increment adds to its field instead). */
 const replaces = (
-  write: {
-    readonly whole: boolean;
-    readonly fields: readonly string[] | undefined;
-  },
-  earlier: readonly string[] | null | undefined,
+  write: { readonly whole: boolean; readonly overwrites: ReadonlySet<string> },
+  earlier: ChangedFields | undefined,
 ): boolean =>
   earlier !== undefined &&
   (write.whole ||
     (earlier !== null &&
-      earlier.every((field) => write.fields?.includes(field) === true)));
+      earlier.every((field) => write.overwrites.has(field))));
+
+/** Add a write's changed fields under a key: all of them once any write there changed the whole entity. */
+const record = (
+  map: Map<string, ChangedFields>,
+  key: string,
+  whole: boolean,
+  changed: readonly string[],
+): Map<string, ChangedFields> => {
+  const before = map.get(key);
+  return map.set(
+    key,
+    whole || before === null
+      ? null
+      : [...new Set([...(before ?? []), ...changed])],
+  );
+};
 
 /**
- * Drop the writes whose effect on an entity a later write replaces, so a read checks only writes whose effect it can
- * see: from the entity's target, and from its collection's, where a write that has no entity left loses its claim.
+ * What each write changed since the targets it touched were last checked, so a later write that replaces its effect
+ * drops it: from the entity's target, and from its collection's once no entity it changed there is left.
  */
-export const supersede = (
-  touched: TouchedTargets,
-  written: WrittenEntities,
-  writer: string,
-  effect: {
-    readonly targets: readonly string[];
-    readonly fields?: readonly string[];
-  },
-): void => {
-  const [entity, collection] = effect.targets;
-  const write = { whole: effect.fields === undefined, fields: effect.fields };
-  const own = touched.get(entity!);
-  for (const [tool, fields] of own ?? [])
-    if (tool !== writer && replaces(write, fields)) own!.delete(tool);
-  if (collection === undefined) return;
-  const byTool = written.get(collection) ?? new Map();
-  written.set(collection, byTool);
-  for (const [tool, entities] of byTool) {
-    if (tool === writer || !replaces(write, entities.get(entity!))) continue;
-    entities.delete(entity!);
-    if (entities.size > 0) continue;
-    byTool.delete(tool);
-    touched.get(collection)?.delete(tool);
+export class WriteEffects {
+  /** Per entity target, the fields each tool changed there. */
+  readonly #changed = new Map<string, Map<string, ChangedFields>>();
+  /** Per collection target, the entities each tool's claim there rests on, with the fields it changed on each. */
+  readonly #members = new Map<
+    string,
+    Map<string, Map<string, ChangedFields>>
+  >();
+
+  /** Forget a checked target's writes, as the touched targets do. */
+  checked(key: string): void {
+    this.#changed.delete(key);
+    this.#members.delete(key);
   }
-  const entities = byTool.get(writer) ?? new Map();
-  const before = entities.get(entity!);
-  entities.set(
-    entity!,
-    write.whole || before === null
-      ? null
-      : [...new Set([...(before ?? []), ...(write.fields ?? [])])],
-  );
-  byTool.set(writer, entities);
-};
+
+  supersede(
+    touched: TouchedTargets,
+    writer: string,
+    effect: {
+      readonly targets: readonly string[];
+      readonly fields?: readonly string[];
+      readonly changed?: {
+        readonly fields: readonly string[];
+        readonly accumulated: readonly string[];
+      };
+    },
+  ): void {
+    const [entity, collection] = effect.targets as [string, string?];
+    const changed = effect.changed?.fields ?? effect.fields ?? [];
+    const write = {
+      whole: effect.fields === undefined,
+      overwrites: new Set(
+        changed.filter((field) => !effect.changed?.accumulated.includes(field)),
+      ),
+    };
+    const own = this.#changed.get(entity) ?? new Map<string, ChangedFields>();
+    for (const [tool, fields] of own)
+      if (tool !== writer && replaces(write, fields)) {
+        own.delete(tool);
+        touched.get(entity)?.delete(tool);
+      }
+    this.#changed.set(entity, record(own, writer, write.whole, changed));
+    if (collection === undefined) return;
+    const byTool = this.#members.get(collection) ?? new Map();
+    for (const [tool, entities] of byTool) {
+      if (tool === writer || !replaces(write, entities.get(entity))) continue;
+      entities.delete(entity);
+      if (entities.size > 0) continue;
+      byTool.delete(tool);
+      touched.get(collection)?.delete(tool);
+    }
+    byTool.set(
+      writer,
+      record(byTool.get(writer) ?? new Map(), entity, write.whole, changed),
+    );
+    this.#members.set(collection, byTool);
+  }
+}
 
 export const entityTarget = (type: string, collection: string, id: string) =>
   `e${compositeKey([type, collection, id])}`;

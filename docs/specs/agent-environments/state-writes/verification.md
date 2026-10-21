@@ -235,3 +235,12 @@ Linkding's bundle create and patch, confirmed only by a list read after the
 same bundle was deleted, are now unconfirmed, so 31 write tools are served (10
 creates, 11 updates, 10 deletes) and the in-process smoke applies all 31. The
 gates passed again (domain and services, boundaries, conformance and `jscpd`).
+
+A seventh round settled two more findings. An update keeps its confirmation
+when a later write overwrites only part of what it changed: a derived change,
+such as an incremented version, counts as part of the update's effect, and a
+later increment adds to the field rather than replacing it. A reset or load
+forgets the collection spellings of the state it replaced. Both new tests fail
+on the previous head. The verdicts over the 50 captures are unchanged plan by
+plan, the in-process smoke applies all 31 served write tools, and the gates
+passed again.

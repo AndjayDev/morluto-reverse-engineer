@@ -24,13 +24,12 @@ import {
   isAbsence,
   servedLine,
   succeeded,
-  supersede,
   withBodies,
   writtenFieldChecks,
   SimulatedState,
+  WriteEffects,
   type CheckOutcome,
   type CheckedLines,
-  type WrittenEntities,
   type TouchedTargets,
   type ServedLine,
 } from "./environmentStateWriteChecks.js";
@@ -90,7 +89,7 @@ export class EnvironmentStateWriteSimulation {
   readonly #observations = new Set<number>();
   readonly #taint: WriteTaint;
   readonly #touched: TouchedTargets = new Map();
-  readonly #writtenSince: WrittenEntities = new Map();
+  readonly #effects = new WriteEffects();
   readonly #lastCheck = new Map<string, number>();
   /** The earliest modelled write to each target since its last check. */
   readonly #touchedSince = new Map<string, number>();
@@ -231,7 +230,7 @@ export class EnvironmentStateWriteSimulation {
         result.entity.id,
       );
     if (result.kind === "applied" && result.entity !== undefined)
-      supersede(this.#touched, this.#writtenSince, write.tool, result);
+      this.#effects.supersede(this.#touched, write.tool, result);
     for (const target of result.targets) {
       // A recorded outcome replaces the entity's values, not its collection's membership.
       if (result.kind === "observed") {
@@ -377,7 +376,7 @@ export class EnvironmentStateWriteSimulation {
     if (!pass && view.shape === "item") this.#adopt(view, record);
     for (const key of keys) {
       this.#touched.delete(key);
-      this.#writtenSince.delete(key);
+      this.#effects.checked(key);
       this.#touchedSince.delete(key);
       this.#lastCheck.set(key, index);
     }

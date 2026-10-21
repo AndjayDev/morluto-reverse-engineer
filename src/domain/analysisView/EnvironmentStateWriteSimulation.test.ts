@@ -406,4 +406,35 @@ describe("reads the served answer no longer matches", () => {
     ];
     expect(gated(rows, "post_books")).toMatchObject({ served: false });
   });
+
+  it("keeps an update confirmed when a later one rewrites only part of what it changed", () => {
+    const versioned = (entry: Book, version: number): Book => ({
+      ...entry,
+      version,
+    });
+    const again = versioned(renamedBook(FIRST_BOOK, "Again Book", 4), 2);
+    const rows: TimedCaptureRow[] = [
+      [
+        "GET",
+        "/api/books",
+        [versioned(FIRST_BOOK, 1), versioned(SECOND_BOOK, 1)],
+      ],
+      ["GET", "/api/books/1", versioned(FIRST_BOOK, 1)],
+      ["GET", "/api/books/2", versioned(SECOND_BOOK, 1)],
+      [
+        "PATCH",
+        "/api/books/1",
+        versioned(RENAMED, 2),
+        200,
+        { name: "Renamed Book" },
+      ],
+      ["PUT", "/api/books/1", again, 200, { name: "Again Book" }],
+      ["GET", "/api/books/1", again],
+    ];
+    // The PUT keeps the version the PATCH incremented, so the read still shows the PATCH's effect.
+    expect(gated(rows, "patch_books_by_id")).toMatchObject({
+      served: true,
+      checked_record_ordinals: [5],
+    });
+  });
 });

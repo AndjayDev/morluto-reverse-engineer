@@ -63,7 +63,7 @@ export class EnvironmentStateStore {
   readonly #sequences = new Map<string, number>();
   /** The entities the state held when it was last reset or loaded, whose values no sequence reuses either. */
   #started: readonly StateEntity[] = [];
-  /** Every collection spelling a type's entities have been held under, kept when a collection empties. */
+  /** Every collection spelling a type's entities have been held under since the last reset or load, kept when a collection empties. */
   readonly #knownCollections = new Map<string, string[]>();
 
   constructor(readonly state: EnvironmentState) {
@@ -133,6 +133,10 @@ export class EnvironmentStateStore {
     this.#writes = 0;
     this.#sequences.clear();
     this.#started = this.#content.entities;
+    // A reset or load starts as a fresh store would, without the spellings of the state it replaced.
+    this.#knownCollections.clear();
+    for (const [type, named] of this.#typeCollections)
+      this.#knownCollections.set(type, [...named]);
   }
 
   /** The entities of a type the state held when it was last reset or loaded. */
@@ -272,7 +276,7 @@ export class EnvironmentStateStore {
     return this.#typeCollections.get(type) ?? [];
   }
 
-  /** Every collection spelling a type's entities have been held under, including ones that have since emptied. */
+  /** Every collection spelling a type's entities have been held under since the last reset or load, including ones that have since emptied. */
   knownCollectionsOf(type: string): readonly string[] {
     return this.#knownCollections.get(type) ?? [];
   }
