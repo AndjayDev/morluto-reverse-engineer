@@ -87,3 +87,8 @@ A second round, on Greptile's review of those changes, learned ids from a replay
 request body match the call, compared an entity's own identity within the call's collection and other ids by the probe's
 mapping, read overlapping keys as ids only when they evidently are ids, and kept a JSON empty string apart from empty
 text. Its four tests fail on the previous head; the six environments again compare exactly as in the table.
+
+A third round located the answer's own entities where the served environment does, at the read view's entity or list
+pointer or the write's response pointer, so an entity inside an envelope keeps its collection's mapping. Its test fails
+on the previous head; the gates passed again (domain and services 7509, boundaries 80, conformance, `jscpd` 3.46%) and
+the six environments again compare exactly as in the table.

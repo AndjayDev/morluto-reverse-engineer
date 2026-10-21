@@ -219,6 +219,22 @@ interface LearnContext {
   readonly entityAt: string;
 }
 
+/** Two values under one key as a pair of ids, when they are: an identifier field, or outside one only a string the state holds as an id, since a counter that equals an id is not one. */
+const idPair = (
+  key: string,
+  value: JsonValue,
+  other: JsonValue | undefined,
+  heldIds: ReadonlySet<string>,
+): readonly [string | number, string | number] | undefined =>
+  isScalarId(value) &&
+  isScalarId(other) &&
+  (ID_FIELD.test(key) ||
+    (typeof value === "string" &&
+      typeof other === "string" &&
+      heldIds.has(other)))
+    ? [value, other]
+    : undefined;
+
 const childPointer = (at: string, key: string | number): string =>
   `${at}/${String(key).replaceAll("~", "~0").replaceAll("/", "~1")}`;
 
@@ -250,18 +266,10 @@ const learnAt = (
   for (const [key, value] of Object.entries(live)) {
     if (!Object.hasOwn(env, key)) continue;
     const other = env[key];
-    if (
-      isScalarId(value) &&
-      isScalarId(other) &&
-      // Outside identifier fields only a string the state holds as an id counts: a counter that equals one is not an id.
-      (ID_FIELD.test(key) ||
-        (typeof value === "string" &&
-          typeof other === "string" &&
-          context.heldIds.has(other)))
-    )
+    const pair = idPair(key, value, other, context.heldIds);
+    if (pair !== undefined)
       context.map.learn(
-        value,
-        other,
+        ...pair,
         own && IDENTITY_FIELD.test(key) ? context.scope : undefined,
       );
     else
