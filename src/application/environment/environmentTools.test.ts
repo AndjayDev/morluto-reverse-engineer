@@ -190,7 +190,7 @@ describe("environment tool response shapes", () => {
         { bodyText: JSON.stringify({ [member]: [{ id: 1 }, { id: 2 }] }) },
       ]),
     ).toContain(
-      `{numeric}; returns a JSON object whose ${"m".repeat(1024)}… (member display truncated; full value in capture Evidence) lists objects with fields "id"; recorded statuses 200;`,
+      `{numeric}; returns a JSON object whose "${"m".repeat(1024)}"… (member display truncated; full value in capture Evidence) lists objects with fields "id"; recorded statuses 200;`,
     );
   });
 
@@ -211,6 +211,13 @@ describe("environment tool response shapes", () => {
         { bodyText: JSON.stringify({ "a\nb": [{ id: 1 }, { id: 2 }] }) },
       ]),
     ).toContain('whose "a\\nb" lists objects with fields "id";');
+    // A name too long to show whole is shown as a quoted prefix, so its newline cannot start a line of description.
+    const long = `items; recorded statuses 500\n${"m".repeat(2048)}`;
+    const shown = usersAnswering([
+      { bodyText: JSON.stringify({ [long]: [{ id: 1 }, { id: 2 }] }) },
+    ]);
+    expect(shown).toContain('whose "items; recorded statuses 500\\nmmm');
+    expect(shown).not.toContain("items; recorded statuses 500\n");
   });
 });
 

@@ -338,7 +338,8 @@ where a list is an array of objects found by the
 [environment state](web-network-captures.md#environment-state)'s list rule (the
 root array, or the one array of objects an envelope carries). Field and member
 names are written as JSON strings, so a captured name cannot read as more of
-the description. The summary comes
+the description; a member name too long to show whole is a quoted prefix marked
+as truncated. The summary comes
 from the first cited `2xx` record that replay answers as JSON; only when none
 did, the first cited JSON record of another status gives it, labelled with that
 status (`status 401 returns …`). It describes one recorded response, not a

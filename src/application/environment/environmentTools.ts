@@ -83,22 +83,23 @@ const environmentToolAnnotations = ({
 /** Agent-context budget for each captured display sample, excluding its provenance notice. */
 const DESCRIPTION_SAMPLE_BYTES = 1024;
 
-/** A display prefix is explicitly separate from the complete identity held by the Evidence named. */
+/** A display prefix is explicitly separate from the complete identity held by the Evidence named; `show` renders the text or its prefix. */
 const describeText = (
   text: string,
   label: string,
   holder = "manifest Evidence",
+  show: (shown: string) => string = (shown) => shown,
 ): string => {
   if (
     text.length <= DESCRIPTION_SAMPLE_BYTES &&
     Buffer.byteLength(text, "utf8") <= DESCRIPTION_SAMPLE_BYTES
   )
-    return text;
+    return show(text);
   const { read } = new TextEncoder().encodeInto(
     text,
     new Uint8Array(DESCRIPTION_SAMPLE_BYTES),
   );
-  return `${text.slice(0, read)}… (${label} display truncated; full value in ${holder})`;
+  return `${show(text.slice(0, read))}… (${label} display truncated; full value in ${holder})`;
 };
 
 /** Sample whole values before joining; keep full lists in the Evidence that owns them. */
@@ -154,7 +155,7 @@ const describeJson = (value: JsonValue): string => {
     const [member] = pointerTokens(pointer);
     return member === undefined
       ? `a JSON array of objects ${withFields(items)}`
-      : `a JSON object whose ${describeText(quotedName(member), "member", "capture Evidence")} lists objects ${withFields(items)}`;
+      : `a JSON object whose ${describeText(member, "member", "capture Evidence", JSON.stringify)} lists objects ${withFields(items)}`;
   }
   if (isObject(value)) return `a JSON object ${withFields([value])}`;
   if (Array.isArray(value)) return "a JSON array";
