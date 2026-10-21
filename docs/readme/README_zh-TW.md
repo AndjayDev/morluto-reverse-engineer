@@ -150,6 +150,7 @@ REA 需要 Node.js 22.x（>=22.19）、24.x（>=24.11）或 26+，以及 npm。�
 | EVM 位元組碼          | 分派選擇器、位元組偏移、推斷的參數和狀態可變性                  | Linux x64 上的本地原始位元組/十六進位輸入載體；[離線 EVM 指南](../evm-bytecode.md)                                 |
 | Rust binaries         | Embedded cargo-auditable dependency list                        | [Rust binaries](../rust-binaries.md)                                                                               |
 | 已記錄的 Linux 崩潰   | 原始 note 記錄、每個已記錄執行緒的暫存器/訊號及可選的對映候選項 | Linux x64 上由呼叫方提供的 pwntools；可選的 GDB/pwndbg；[已記錄崩潰](../recorded-crashes.md)                       |
+| 桌面安裝目錄          | 執行階段候選、支持檔案、元件標記與後續操作                      | 有界的目錄與檔頭檢查；[桌面應用](../desktop-applications.md)                                                       |
 | JavaScript / Electron | 模組、匯入、source map、路由、IPC 和原生附加元件關係            | Node.js 和 npm；[應用分析](../javascript-application-workflows.md)                                                 |
 | 網站                  | 頁面結構、腳本、網路觀察結果和按請求獲取的螢幕擷取畫面          | Chrome 系瀏覽器；[瀏覽器分析](../browser-observation.md)                                                           |
 | 已保存的網路擷取      | 請求、回應、可訪問的酬載和來源位置                              | HAR；原生 mitmproxy 擷取需要 Linux 上的 mitmdump；[擷取指南](../web-network-captures.md)                           |
@@ -269,6 +270,7 @@ npx rea-agents@latest setup
 
 - [安裝與設定](../installation.md)：AI 代理註冊、提供者組態、更新和卸載。
 - [就緒檢查與故障排查](../installation.md#check-readiness-for-your-task)：診斷特定 AI 代理或分析引擎。
+- [GGUF / safetensors](../model-artifacts.md)
 - [CLI 與 Evidence](../cli.md)：命令、提供者選擇、快照、匯入/匯出和退出狀態。
 - [MCP 契約](../mcp-contracts.md)和[AI 代理提示詞](../mcp-prompts.md)：工具結果、會話和引導式調查。
 - [工具目錄](../mcp-contracts.md#generated-catalog)：建置時生成的工具、提供者和 CLI 命令清單。

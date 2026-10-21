@@ -1,6 +1,8 @@
 import { DEFAULT_CALL_RELATIONSHIP_DIRECTION } from "../contracts/enhancedInputs.js";
 import { CALL_RELATIONSHIP_TRAVERSALS } from "./CallRelationshipTraversal.js";
 import { NATIVE_DISPATCH_METADATA_SOURCES } from "./native/NativeDispatchMetadataInspection.js";
+import { NATIVE_UI_ACTION_OPERATIONS } from "./native/NativeUiActionTrace.js";
+import { NATIVE_CALL_ROUTE_SOURCES } from "./native/NativeCallRoutes.js";
 import { z } from "zod";
 import { sqliteDatabaseCapability } from "./sqlite/SqliteDatabaseCapability.js";
 import type {
@@ -54,6 +56,8 @@ export type AvailabilityPolicy = {
   readonly signalRecordingEnabled?: boolean;
   readonly wasmArtifactEnabled?: boolean;
   readonly evmInterfaceEnabled?: boolean;
+  /** Fresh owner observation of the selected required EVM limiter. */
+  readonly evmLimiterAvailability?: ProviderAvailability;
   readonly processCaptureEnabled: boolean;
   readonly optionalProviderLoadFailures?: OptionalProviderLoadFailures;
   readonly binaryLayoutEnabled?: boolean;
@@ -117,10 +121,10 @@ type CompositionRequirements = readonly (
 )[];
 type AvailabilityMode = {
   readonly name: string;
-  readonly requirements: readonly AnalysisOperation[];
+  readonly requirements: CompositionRequirements;
 };
 type ModeComposition = {
-  readonly defaultMode: string;
+  readonly defaultMode?: string;
   readonly modes: readonly AvailabilityMode[];
 };
 type ProviderComposition = CompositionRequirements | ModeComposition;
@@ -135,16 +139,32 @@ const CALL_RELATIONSHIP_COMPOSITION: ModeComposition = {
   ),
 };
 
+const NATIVE_UI_ACTION_COMPOSITION: ModeComposition = {
+  modes: [
+    {
+      name: "authored_ui_dispatch",
+      requirements: [
+        NATIVE_UI_ACTION_OPERATIONS.interfaceBuilder,
+        Object.values(NATIVE_DISPATCH_METADATA_SOURCES),
+      ],
+    },
+    {
+      name: "native_seed_call_trace",
+      requirements: [
+        Object.values(NATIVE_DISPATCH_METADATA_SOURCES),
+        NATIVE_UI_ACTION_OPERATIONS.nativeSeed,
+        Object.values(NATIVE_CALL_ROUTE_SOURCES),
+      ],
+    },
+  ],
+};
+
 // Complete coverage is checked against canonical enhanced contracts, rather than
 // allowing a newly registered workflow to silently look like a missing provider.
 const ENHANCED_REQUIREMENTS: ReadonlyMap<string, ProviderComposition> = new Map(
   Object.entries({
     trace_native_values: ["analyze_function", "resolve_native_call_targets"],
-    trace_native_ui_action: [
-      "decode_interface_builder",
-      "list_names",
-      "procedure_callees",
-    ],
+    trace_native_ui_action: NATIVE_UI_ACTION_COMPOSITION,
     inspect_native_dispatch_metadata: [
       Object.values(NATIVE_DISPATCH_METADATA_SOURCES),
     ],
@@ -391,7 +411,10 @@ const workflowAvailabilityFor = ({
   policy,
 }: AvailabilityContext): Availability | null => {
   if (
+    name === "inspect_desktop_application" ||
     name === "inspect_go_binary" ||
+    name === "inspect_il2cpp_metadata" ||
+    name === "inspect_model_artifact" ||
     name === "inspect_rust_binary" ||
     name === "inspect_python_pyc" ||
     name === "inspect_electron_fuses"
@@ -476,14 +499,18 @@ const workflowAvailabilityFor = ({
         };
   if (name === "inspect_pe_resources")
     return { reason: "available", remediation: null };
-  if (name === "inspect_evm_interface")
-    return policy.evmInterfaceEnabled === true
-      ? { reason: "available", remediation: null }
-      : {
-          reason: "provider_missing",
-          remediation:
-            "The bundled offline EVM interface profile is currently real-verified on Linux x64. No active binary target or chain endpoint is required.",
-        };
+  if (name === "inspect_evm_interface") {
+    if (policy.evmInterfaceEnabled !== true)
+      return {
+        reason: "provider_missing",
+        remediation:
+          "The bundled offline EVM interface profile is currently real-verified on Linux x64. No active binary target or chain endpoint is required.",
+      };
+    const limiter = policy.evmLimiterAvailability;
+    if (limiter?.status === "unavailable")
+      return { reason: "provider_missing", remediation: limiter.reason };
+    return { reason: "available", remediation: null };
+  }
   if (name === "inspect_recorded_crash")
     return policy.recordedCrashEnabled === true
       ? { reason: "available", remediation: null }
@@ -740,76 +767,79 @@ const composedAvailability = (
         requirements.defaultMode,
         descriptors,
       )
-    : composedAvailabilityFor(requirements, descriptors);
+    : composedAvailabilityFor(requirements, descriptors).availability;
 };
 
+/** Evaluate source groups once so discovery and missing-operation facts agree. */
 const composedAvailabilityFor = (
-  requirements: readonly (string | readonly string[])[],
+  requirements: CompositionRequirements,
   descriptors: ReadonlyMap<string, ProviderDescriptor>,
-): Availability => {
-  for (const requirement of requirements) {
-    if (typeof requirement === "string") {
-      if (!descriptors.has(requirement))
-        return {
-          reason: "provider_missing",
-          remediation: `Configure a provider for required operation ${requirement}.`,
-        };
-    } else {
-      const declared = requirement.some((operation) =>
-        descriptors.has(operation),
+): {
+  readonly availability: Availability;
+  readonly missingOperations: readonly AnalysisOperation[];
+} => {
+  const unmet = requirements
+    .map((requirement) => {
+      const operations =
+        typeof requirement === "string" ? [requirement] : requirement;
+      const observations = operations.map((operation) =>
+        descriptors.get(operation),
       );
-      if (!declared)
-        return {
-          reason: "provider_missing",
-          remediation: `Configure a provider for one of: ${requirement.join(", ")}.`,
-        };
-    }
-  }
-
-  for (const requirement of requirements) {
-    if (typeof requirement === "string") {
-      const descriptor = descriptors.get(requirement);
-      if (descriptor?.available === false)
-        return {
-          reason:
-            descriptor.availability_code === "unsupported_host"
-              ? "unsupported_host"
-              : "provider_unavailable",
-          remediation:
-            descriptor.reason ??
-            "Choose another target or configured provider.",
-        };
-    } else {
-      const anyAvailable = requirement.some(
-        (operation) => descriptors.get(operation)?.available === true,
-      );
-      if (!anyAvailable) {
-        const unavailable = requirement
-          .map((operation) => descriptors.get(operation))
-          .find((descriptor) => descriptor?.available === false);
-        if (unavailable !== undefined)
-          return {
-            reason:
-              unavailable.availability_code === "unsupported_host"
-                ? "unsupported_host"
-                : "provider_unavailable",
-            remediation:
-              unavailable.reason ??
-              "Choose another target or configured provider.",
-          };
-      }
-    }
-  }
-  return { reason: "available", remediation: null };
+      return {
+        requirement,
+        operations,
+        available: observations.some(
+          (descriptor) => descriptor?.available === true,
+        ),
+        unavailable: observations.find(
+          (descriptor) => descriptor?.available === false,
+        ),
+      };
+    })
+    .filter((group) => !group.available);
+  const missingOperations = [
+    ...new Set(unmet.flatMap((group) => group.operations)),
+  ];
+  // Preserve the existing admission rule: report an undeclared prerequisite
+  // before an unhealthy declaration, in requirement order within each class.
+  const undeclared = unmet.find((group) => group.unavailable === undefined);
+  if (undeclared !== undefined)
+    return {
+      missingOperations,
+      availability: {
+        reason: "provider_missing",
+        remediation:
+          typeof undeclared.requirement === "string"
+            ? `Configure a provider for required operation ${undeclared.requirement}.`
+            : `Configure a provider for one of: ${undeclared.operations.join(", ")}.`,
+      },
+    };
+  const unavailable = unmet[0]?.unavailable;
+  if (unavailable !== undefined)
+    return {
+      missingOperations,
+      availability: {
+        reason:
+          unavailable.availability_code === "unsupported_host"
+            ? "unsupported_host"
+            : "provider_unavailable",
+        remediation:
+          unavailable.reason ?? "Choose another target or configured provider.",
+      },
+    };
+  return {
+    availability: { reason: "available", remediation: null },
+    missingOperations,
+  };
 };
 
 const availabilityForModes = (
   declarations: readonly AvailabilityMode[],
-  defaultMode: string,
+  defaultMode: string | undefined,
   descriptors: ReadonlyMap<string, ProviderDescriptor>,
 ): Availability => {
   const modeResults: AvailabilityModeResult[] = declarations.map((mode) => {
-    const availability = composedAvailabilityFor(
+    const { availability, missingOperations } = composedAvailabilityFor(
       mode.requirements,
       descriptors,
     );
@@ -825,10 +855,7 @@ const availabilityForModes = (
       name: mode.name,
       available: false,
       reason: availability.reason,
-      missing_operations: mode.requirements.filter((operation) => {
-        const descriptor = descriptors.get(operation);
-        return descriptor === undefined || descriptor.available === false;
-      }),
+      missing_operations: [...missingOperations],
       remediation: availability.remediation,
     };
   });
@@ -859,8 +886,12 @@ const availabilityForModes = (
   const specificFailureRemediation =
     failure?.reason === "provider_missing" ? undefined : failure?.remediation;
   const facts = {
-    defaultModeAvailable:
-      modes.find((mode) => mode.name === defaultMode)?.available ?? false,
+    ...(defaultMode === undefined
+      ? {}
+      : {
+          defaultModeAvailable:
+            modes.find((mode) => mode.name === defaultMode)?.available ?? false,
+        }),
     modes,
   };
   if (availableMode !== undefined)

@@ -9,6 +9,8 @@ const MIGRATED_PROVIDER_ROOTS = new Set([
   "evm",
   "go",
   "python",
+  "il2cpp",
+  "model",
   "rust",
   "wasm",
   "captures",

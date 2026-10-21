@@ -20,10 +20,12 @@ import {
 } from "../../../src/contracts/javascript/javascriptApplicationWorkflowExamples.js";
 import { analyzeJavaScriptApplication } from "../../support/javascriptApplicationScope.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
+import { absoluteCallerPath } from "../../../src/filesystem/callerPath.js";
 import {
   javascriptApplicationAnalysisResultSchema,
   type JavaScriptApplicationAnalysisResult,
 } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
+import { applicationVersionComparisonResultSchema } from "../../../src/domain/javascript/javascriptApplicationVersionComparisonSchemas.js";
 import { parseJavaScriptApplicationGraph } from "../../../src/domain/javascript/javascriptApplicationGraph.js";
 import { z } from "zod";
 
@@ -185,23 +187,31 @@ const expectSelfImportEvidence = (
 const analyzeThroughStdioMcp = async (
   inputPath: string,
 ): Promise<JavaScriptApplicationAnalysisResult> => {
+  const evidence = await analyzeEvidenceThroughStdioMcp(inputPath);
+  const result = javascriptApplicationAnalysisResultSchema.parse(
+    evidence.normalized_result,
+  );
+  expect(result).toMatchObject({ input_path: inputPath, format: "directory" });
+  return result;
+};
+
+const analyzeEvidenceThroughStdioMcp = async (
+  inputPath: string,
+  sourcePaths?: readonly string[],
+) => {
   const client = await connectedMcpClient();
   const response = await client.callTool({
     name: "analyze_javascript_application",
-    arguments: { input_path: inputPath },
+    arguments: {
+      input_path: inputPath,
+      ...(sourcePaths === undefined ? {} : { source_paths: [...sourcePaths] }),
+    },
   });
   expect(response.isError).not.toBe(true);
   expect(response.content).toEqual(
     expect.arrayContaining([expect.objectContaining({ type: "text" })]),
   );
-  const result = z
-    .object({ normalized_result: javascriptApplicationAnalysisResultSchema })
-    .parse(response.structuredContent).normalized_result;
-  expect(result).toMatchObject({
-    input_path: inputPath,
-    format: "directory",
-  });
-  return result;
+  return parseEvidence(response.structuredContent);
 };
 
 const expectCliAnalysisParity = async (
@@ -640,16 +650,18 @@ it("resolves source-map URL paths once without changing their declarations", asy
 }, 20_000);
 
 describe("JavaScript application path CLI", () => {
-  it("accepts a relative local application path and preserves canonical Evidence identity", async () => {
+  it("retains the admitted relative CLI selection and canonical artifact identity", async () => {
     const root = await createTestTempDirectory("rea-relative-application-cli-");
     await writeFile(join(root, "app.js"), "export const value = 1;\n");
-    const absolute = await analyzeJavaScriptApplication({ input_path: root });
+    const relativePath = relative(process.cwd(), root);
+    const admittedPath = absoluteCallerPath(relativePath);
+    const absolute = await analyzeJavaScriptApplication({
+      input_path: admittedPath,
+    });
     if (!absolute.ok) throw absolute.error;
     const absoluteAnalysis = javascriptApplicationAnalysisResultSchema.parse(
       absolute.value.normalized_result,
     );
-
-    const relativePath = relative(process.cwd(), root);
     const fromCli = await runCli([
       "analyze-javascript-application",
       relativePath,
@@ -658,6 +670,7 @@ describe("JavaScript application path CLI", () => {
 
     expect(fromCli).toMatchObject({
       evidence_id: absolute.value.evidence_id,
+      parameters: { input_path: admittedPath },
       normalized_result: {
         input_path: absoluteAnalysis.input_path,
       },
@@ -1216,6 +1229,73 @@ describe("application workflow CLI input", () => {
   });
 });
 
+describe("application version source-scope MCP comparison", () => {
+  it("keeps unselected parse scopes unknown through stdio MCP", async () => {
+    const root = await createTestTempDirectory("rea-version-scope-mcp-");
+    await Promise.all([
+      writeFile(
+        join(root, "lib.js"),
+        "export function shared() { return 1; }\n",
+      ),
+      writeFile(join(root, "main.js"), 'export const name = "one";\n'),
+    ]);
+    const full = await analyzeEvidenceThroughStdioMcp(root);
+    const selected = await analyzeEvidenceThroughStdioMcp(root, ["main.js"]);
+    const selectedAnalysis = javascriptApplicationAnalysisResultSchema.parse(
+      selected.normalized_result,
+    );
+    const scope = selectedAnalysis.graph.nodes.find(
+      ({ kind, observations }) =>
+        kind === "unknown" &&
+        observations.some(
+          ({ properties }) =>
+            properties.path === "lib.js" &&
+            properties.operation === "select-javascript-sources",
+        ),
+    );
+    expect(scope?.observations[0]?.evidence).toMatchObject({
+      state: "unavailable",
+      limitations: [
+        "Source is outside the caller-selected source_paths; it was inventoried but not analyzed.",
+      ],
+    });
+    const client = await connectedMcpClient();
+    const compare = async (left: unknown, right: unknown) => {
+      const response = await client.callTool({
+        name: "compare_application_versions",
+        arguments: { left, right },
+      });
+      expect(response.isError).not.toBe(true);
+      return applicationVersionComparisonResultSchema.parse(
+        parseEvidence(response.structuredContent).normalized_result,
+      );
+    };
+    const forward = await compare(full, selected);
+    const reverse = await compare(selected, full);
+
+    expect(
+      forward.items.find(
+        ({ right_node_id }) => right_node_id === scope?.node_id,
+      ),
+    ).toMatchObject({
+      status: "unknown",
+      dimensions: ["availability"],
+      limitations: [
+        "Source is outside the caller-selected source_paths; it was inventoried but not analyzed.",
+      ],
+      evidence_links: expect.arrayContaining([
+        full.evidence_id,
+        selected.evidence_id,
+      ]),
+    });
+    expect(
+      reverse.items.find(({ left_node_id }) => left_node_id === scope?.node_id),
+    ).toMatchObject({ status: "unknown", dimensions: ["availability"] });
+    expect(forward.summary).toMatchObject({ added: 0, removed: 0 });
+    expect(reverse.summary).toMatchObject({ added: 0, removed: 0 });
+  });
+});
+
 describe("application workflow CLI copy boundaries", () => {
   it("compares source values excluded from escaped rest and spread copies", async () => {
     const root = await createTestTempDirectory("rea-copy-boundary-cli-");
@@ -1600,7 +1680,7 @@ describe("application workflow CLI validation", () => {
     ]);
     expect(malformed).toMatchObject({
       code: "invalid_request",
-      retryable: true,
+      retryable: false,
       details: {
         issues: [{ path: [], reason: "invalid_format", expected: "JSON" }],
       },

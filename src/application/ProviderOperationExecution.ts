@@ -2,12 +2,20 @@ import { z } from "zod";
 import type {
   AnalysisError,
   AnalysisErrorOptions,
+  AnalysisPartialObservation,
 } from "../domain/analysisErrorBase.js";
 import {
   AnalysisCancelledError,
   AnalysisInputError,
+  AnalysisOutputError,
 } from "../domain/analysisErrorCore.js";
 import type { Evidence } from "../domain/evidence.js";
+import {
+  freezeJsonSnapshot,
+  isImmutableJsonSnapshot,
+} from "../domain/immutableJson.js";
+import { jsonValueSchema } from "../domain/jsonValue.js";
+import { projectInputIssues } from "../domain/inputIssueProjection.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
   createAnalysisExecutionEvidence,
@@ -52,7 +60,18 @@ export const executeProviderOperation = async <
     );
   const request = schema.safeParse({ operation, input });
   if (!request.success)
-    return err(new AnalysisInputError(operation, { cause: request.error }));
+    return err(
+      new AnalysisInputError(
+        operation,
+        { cause: request.error },
+        projectInputIssues(request.error.issues, { operation, input }).map(
+          (issue) =>
+            issue.path[0] === "input"
+              ? { ...issue, path: issue.path.slice(1) }
+              : issue,
+        ),
+      ),
+    );
   const executed = await provider.execute(request.data, options);
   if (!executed.ok) return executed;
   const evidence = createAnalysisExecutionEvidence(
@@ -79,4 +98,50 @@ export const completeProviderEvidence = (
       }),
     );
   return ok(evidence);
+};
+
+/**
+ * Retain an incomplete observation when projection can serialize it.
+ * A JSON partial is replaced by one frozen snapshot, so a later mutation
+ * cannot make projection throw and projection does not copy it again.
+ * A partial that is not JSON is cleared from the returned error and from
+ * every cleanup primary projection can select later. Each cleared error
+ * records an output failure, leaving cancellation or timeout primary.
+ */
+export const keepIncompleteObservation = (
+  error: AnalysisError,
+  operation: string,
+  reason: string,
+): AnalysisError => {
+  const seen = new Set<AnalysisError>();
+  // One source object can sit on a wrapper and its cleanup primary.
+  const judged = new Map<object, AnalysisPartialObservation | undefined>();
+  let current: AnalysisError | undefined = error;
+  while (current !== undefined && !seen.has(current)) {
+    seen.add(current);
+    const partial = current.partialObservation;
+    if (
+      partial !== undefined &&
+      !isImmutableJsonSnapshot(partial) &&
+      typeof partial === "object"
+    ) {
+      // safeParse clones only after validation succeeds. Freeze that copy once.
+      let snapshot = judged.get(partial);
+      if (!judged.has(partial)) {
+        const parsed = jsonValueSchema.safeParse(partial);
+        snapshot = parsed.success
+          ? (freezeJsonSnapshot(parsed.data) as AnalysisPartialObservation)
+          : undefined;
+        judged.set(partial, snapshot);
+      }
+      if (snapshot === undefined) {
+        current.partialObservation = undefined;
+        current.retainSecondaryFailure(
+          new AnalysisOutputError(operation, reason),
+        );
+      } else current.partialObservation = snapshot;
+    }
+    current = current.cleanupPrimary;
+  }
+  return error;
 };
