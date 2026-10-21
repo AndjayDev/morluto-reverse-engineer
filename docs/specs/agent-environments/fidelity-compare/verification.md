@@ -107,3 +107,8 @@ collection is deleted, because the read after the patch is the patch's own obser
 96.9% to 93.8%: the three creates and two patches the probes make are not served, and the six reads and deletes of
 those collections that follow fail. Against its own capture it falls from 96.6% to 93.1%. The table shows the new
 figures.
+
+A fifth round merged the write-plan branch at dc5e2aad, which weighs an update's derived changes when a later write
+replaces it and resets collection spellings on reset or load. It also makes a request whose answer the probe lost,
+still uncompared, so that a later read sees its effect: a lost delete followed by a 404 now agrees. Its test fails on
+the previous head. The six environments compare as in the table.

@@ -26,8 +26,8 @@ credentials and resets it between sequences.
   once percent-decoded, as replay reads them.
   Path values, query values the tool takes and a JSON body become the tool's arguments.
 - A record without a usable request line (a redacted URL, a transaction the capture cannot attribute, an unparseable
-  URL or no method) is not replayed, and a request with no recorded answer is not compared. Each is listed per probe
-  with its reason and left out of agreement.
+  URL or no method) is not replayed. A request with no recorded answer is made, since it may have changed the
+  application, but not compared. Each is listed per probe with its reason and left out of agreement.
 - A request no tool matches is reported `no-tool`; a matched tool the environment does not offer, such as a write it
   withholds, is reported `not-served`. Neither is answered.
 - Ids differ between a re-seeded application and the capture. The comparison maps them:

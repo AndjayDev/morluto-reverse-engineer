@@ -745,7 +745,7 @@ with a JSON pointer and both values cut short:
 
 What a probe did not observe is not counted as the application's behaviour. A record without a usable request line,
 such as a redacted URL or a transaction the capture cannot attribute, is not replayed, and a request with no recorded
-answer is not compared: each probe lists them under `unobserved` with the reason, and the summary counts them. A live
+answer is made, since it may have changed the application, but not compared: each probe lists them under `unobserved` with the reason, and the summary counts them. A live
 body the probe did not record compares by status only and is counted as `unobserved_bodies`, unless the answer never
 carries one (204, 205, 304, `HEAD`). A browser probe captured without `capture.network.response_body` is refused.
 

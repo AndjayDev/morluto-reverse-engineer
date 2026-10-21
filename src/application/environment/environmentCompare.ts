@@ -236,19 +236,24 @@ const stepOf = (
   };
 };
 
-/** Answer one probe request as the environment would and compare it with the application's answer. */
+/** Answer one probe request as the environment would and compare it with the application's answer; one without an answer is only made. */
 const compareStep = (
   run: ProbeRun,
   manifest: EnvironmentSource["manifest"],
   probe: ProbeStep,
-): CompareStep => {
+): CompareStep | undefined => {
   const { request, live } = probe;
   const base = {
     ordinal: probe.ordinal,
     method: request.method,
     path: request.path,
-    live_status: live.status,
+    live_status: live?.status ?? null,
   };
+  const report = (
+    call: ProbeToolCall | undefined,
+    outcome: { env_status: number | null; differences: Difference[] },
+  ): CompareStep | undefined =>
+    live === undefined ? undefined : stepOf(base, call, outcome);
   // Matched in the environment's terms, so a tool whose path holds a seeded id literally still matches; each path
   // parameter translates by the collection it names, where the request already fits a tool.
   const fitted = matchProbeRequest(manifest, request);
@@ -259,13 +264,13 @@ const compareStep = (
     path: translatePath(request.path, run.map, (index) => scopes?.get(index)),
   });
   if (call === undefined)
-    return stepOf(base, call, {
+    return report(call, {
       env_status: null,
       differences: [{ category: "no-tool", pointer: "" }],
     });
   const check = run.served.get(call.tool.name);
   if (check === undefined)
-    return stepOf(base, call, {
+    return report(call, {
       env_status: null,
       differences: [{ category: "not-served", pointer: "" }],
     });
@@ -276,8 +281,8 @@ const compareStep = (
       typeof value === "string" && !run.map.hasEnv(value) && !held.has(value)
     );
   });
-  const refusedWith = (message: string): CompareStep =>
-    stepOf(base, call, {
+  const refusedWith = (message: string): CompareStep | undefined =>
+    report(call, {
       env_status: null,
       differences: [
         { category: "refused", pointer: "", env: message.slice(0, 200) },
@@ -289,6 +294,7 @@ const compareStep = (
     return refusedWith(`Invalid arguments: ${problem}`);
   const answered = run.answer(call.tool, args);
   if (!answered.ok) return refusedWith(answered.error.message);
+  if (live === undefined) return undefined;
   const env: Answer = {
     status: answered.value.status,
     body: envBody(run, answered.value),
@@ -451,8 +457,8 @@ export const compareEnvironment = (input: {
       normalised: emptyNormalised(),
     };
     const { steps, unobserved } = probeRequests(capture.value.records);
-    const results = steps.map((step) =>
-      compareStep(run, source.manifest, step),
+    const results = steps.flatMap(
+      (step) => compareStep(run, source.manifest, step) ?? [],
     );
     probes.push(
       probeReport(

@@ -342,6 +342,31 @@ describe("what a probe did not observe", () => {
     expect(report.value.summary.normalised.unobserved_bodies).toBe(1);
   });
 
+  it("makes a request whose answer was lost, so later reads see its effect", () => {
+    const report = run(
+      analysisViewCaptureEvidence(
+        environmentManifestCaptureFixture([
+          exchange(0, "DELETE", "http://app.example/api/books/2", 0),
+          {
+            ...exchange(1, "GET", "http://app.example/api/books/2", 404),
+            response: {
+              status: 404,
+              content: {
+                mimeType: "application/json",
+                text: JSON.stringify(BOOK_NOT_FOUND),
+              },
+            },
+          },
+        ]),
+      ),
+    );
+    if (!report.ok) throw report.error;
+    expect(report.value.probes[0]?.unobserved).toEqual([
+      { ordinal: 0, reason: "no-response" },
+    ]);
+    expect(report.value.summary).toMatchObject({ steps: 1, equal: 1 });
+  });
+
   it("refuses a browser probe captured without response bodies", () => {
     const report = run(scenarioHeaderOnlyCaptureEvidence());
     expect(report.ok).toBe(false);

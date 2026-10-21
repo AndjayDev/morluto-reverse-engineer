@@ -16,17 +16,17 @@ import {
   type ReplayedBody,
 } from "./environmentSource.js";
 
-/** A probe record left uncompared: without a usable request line it is not replayed either; without an answer there is nothing to compare. */
+/** A probe record left uncompared: without a usable request line it is not replayed either; without an answer it is replayed, so the state follows, but nothing is compared. */
 export interface UnobservedRecord {
   readonly ordinal: number;
   readonly reason: RequestLineExclusion | "no-response";
 }
 
-/** One probe request with the application's answer. */
+/** One probe request with the application's answer, absent when the probe recorded none. */
 export interface ProbeStep {
   readonly ordinal: number;
   readonly request: ProbeRequest;
-  readonly live: Answer;
+  readonly live?: Answer;
 }
 
 /** Statuses whose answers carry no body, so a missing body is known to be empty. */
@@ -100,19 +100,28 @@ export const probeRequests = (
         ordinal,
         reason: line?.kind === "excluded" ? line.reason : "request-unavailable",
       });
-    else if (exchange.status === null)
-      unobserved.push({ ordinal, reason: "no-response" });
-    else
-      steps.push({
-        ordinal,
-        request: {
-          method: line.method,
-          path: exchange.path,
-          query: exchange.query,
-          body: requestBody(record),
-        },
-        live: liveAnswer(line.method, exchange.status, replayedBody(exchange)),
-      });
+    else {
+      const request = {
+        method: line.method,
+        path: exchange.path,
+        query: exchange.query,
+        body: requestBody(record),
+      };
+      // A request whose answer was lost may still have changed the application, so it is made but not compared.
+      if (exchange.status === null) {
+        unobserved.push({ ordinal, reason: "no-response" });
+        steps.push({ ordinal, request });
+      } else
+        steps.push({
+          ordinal,
+          request,
+          live: liveAnswer(
+            line.method,
+            exchange.status,
+            replayedBody(exchange),
+          ),
+        });
+    }
   }
   return { steps, unobserved };
 };
