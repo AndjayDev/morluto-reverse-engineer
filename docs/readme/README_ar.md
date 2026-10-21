@@ -11,7 +11,7 @@
 
 [![npm version](https://img.shields.io/npm/v/rea-agents?style=flat-square&color=cb3837)](https://www.npmjs.com/package/rea-agents)
 [![MCP tool catalog](https://img.shields.io/badge/MCP-tool_catalog-5c4ee5?style=flat-square)](../mcp-contracts.md#generated-catalog)
-[![Node.js requirements](https://img.shields.io/badge/Node.js-requirements-339933?style=flat-square&logo=nodedotjs&logoColor=white)](#current-status)
+[![Node.js requirements](https://img.shields.io/badge/Node.js-requirements-339933?style=flat-square&logo=nodedotjs&logoColor=white)](#what-you-can-analyze)
 [![skills.sh](https://skills.sh/b/morluto/rea?style=flat-square)](https://skills.sh/morluto/rea/reverse-engineer-anything)
 [![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](../../LICENSE)
 [![Discord](https://img.shields.io/discord/1556595354999332884?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/GkcryMnJDM)
@@ -20,21 +20,23 @@
 
 **[الموقع](https://rea.tools/ar/) · [الأدلة](https://rea.tools/ar/guides/) · [دراسات الحالة](https://rea.tools/ar/showcase/)**
 
-[البدء السريع](#البدء-السريع) · [كيف يعمل REA](#كيف-يعمل-rea) · [ما الذي يمكنك تحليله](#ما-الذي-يمكنك-تحليله) · [دراسات الحالة](#دراسات-الحالة) · [الأسئلة الشائعة](#الأسئلة-الشائعة) · [أدوات GNU objdump وRizin](../reverse-engineering-tools.md) · [التوثيق](#التوثيق)
+[البدء السريع](#البدء-السريع) · [كيف يعمل REA](#كيف-يعمل-rea) · [ما الذي يمكنك تحليله](#ما-الذي-يمكنك-تحليله) · [دراسات الحالة](#دراسات-الحالة) · [الأسئلة الشائعة](#الأسئلة-الشائعة) · [التوثيق](#التوثيق)
 
 <code>npx rea-agents setup</code>
 
 </div>
 
 > [!IMPORTANT]
-> المصادر الرسمية لـ REA: [morluto/rea](https://github.com/morluto/rea), [rea.tools](https://rea.tools/), [rea-agents](https://www.npmjs.com/package/rea-agents) (npm).
-> استخدم روابط التثبيت والإصدارات المنشورة في هذه المصادر الرسمية. تشابه اسم المستودع أو نسخ ملف README لا يثبت أن التنزيل رسمي.
+> احصل على REA من [morluto/rea](https://github.com/morluto/rea)،
+> أو [rea.tools](https://rea.tools/ar/)، أو [حزمة rea-agents على npm](https://www.npmjs.com/package/rea-agents).
+> اتبع روابط التثبيت والإصدارات المنشورة من هذه المصادر الرسمية. إن تشابه
+> اسم المستودع أو نسخ ملف README لا يثبت أن التنزيل رسمي.
 
 <div align="center">
 
 <br />
 
-<img src="../assets/rea-hopper-analysis.png" alt="REA يشغّل جسر التحليل داخل Hopper لفحص ملف ثنائي للشيفرة الأصلية" width="1200" />
+<img src="../assets/rea-hopper-analysis.png" alt="REA يُشغّل جسر التحليل داخل Hopper لفحص ملف ثنائي للشيفرة الأصلية" width="1200" />
 
 <br /><br />
 
@@ -56,15 +58,15 @@
 
 ---
 
-هل وجدت في تطبيق ميزة تريد إضافتها إلى منتجك؟ اطلب من وكيلك استقصاءها باستخدام REA. يستطيع فحص التطبيق من دون شيفرته المصدرية، وشرح طريقة عمل الميزة وعرض الأدلة، ثم بناء نسخة تناسب مشروعك.
-
 يربط REA وكيلك بأدوات لفحص الملفات الثنائية للشيفرة الأصلية، وتطبيقات JavaScript وElectron، وتجميعات .NET، والمواقع. يمكنك أيضًا استخدام الأدوات نفسها من الطرفية. يجري التحليل محليًا، وتتضمن النتائج الأدلة والقيود التي تستند إليها كل خلاصة.
 
-يسجّل الإعداد REA لدى وكيلك ويثبّت تعليمات سير العمل المطابقة. يمكن لتحليل الشيفرة الأصلية استخدام تثبيت موجود من Hopper أو Ghidra؛ ويمكن للإعداد أيضًا تثبيت Hopper اختياريًا بعد موافقتك. لا يحتاج التحليل الثابت لـ JavaScript إلى أي من المحركين.
+يسجّل الإعداد REA لدى وكيلك ويثبّت تعليمات سير العمل المطابقة. يمكن لتحليل الشيفرة الأصلية استخدام تثبيت موجود من Hopper أو Ghidra أو IDA؛ ويمكن للإعداد أيضًا تثبيت Hopper اختياريًا بعد موافقتك. لا يحتاج التحليل الثابت لـ JavaScript إلى محرك لتحليل الشيفرة الأصلية.
 
 > **[زر موقع REA](https://rea.tools/ar/)** للاطلاع على تعليمات الإعداد والأدلة المصوّرة ودراسات الحالة الفعلية.
 
 ## البدء السريع
+
+على نظام Linux، يتطلب تشغيل أدوات Ghidra وJADX وأدوات البرامج الثابتة بالإضافة إلى التحليل الثابت لـ JavaScript/Electron وجود أداة `ps` متوافقة مع procps في مسار `PATH` الخاص بـ REA لإجراء فحوصات ملكية العمليات. خطوات المعالجة موضحة في `docs/installation.md` تحت عنوان "Linux owned-process prerequisite".
 
 ### إعداد وكيلك
 
@@ -74,46 +76,37 @@
 npx rea-agents setup
 ```
 
-اختر الوكلاء، وراجع التغييرات المقترحة، ثم وافق عليها. يضيف الإعداد خادم MCP الخاص بـ REA وتعليمات سير العمل المطابقة، مع الاحتفاظ بنسخ احتياطية من الإعدادات الموجودة. أعد تشغيل وكيلك بعد ذلك.
-
-يدعم الإعداد Claude Code وCodex وCursor وGemini CLI وGrok Build و[وكلاء آخرين](../installation.md#supported-agents). راجع [التثبيت والإعداد](../installation.md) لتهيئة موفّري التحليل وتسجيل MCP يدويًا.
+يسجّل أمر الإعداد REA تلقائيًا مع Claude Code، وCodex، وCursor، وGemini CLI، وWindsurf، وOpenCodeInterpreter، وLibreChat، وDevin، وQode، وHermes، وTheia، وAmp، وAugment، وSuperagent، وKimi CLI، وAider. راجع [التثبيت](../installation.md#supported-agents) للاطلاع على [وكلاء آخرين](../installation.md#supported-agents)، أو لخطوات تسجيل خادم MCP يدويًا.
 
 ### اطلب من وكيلك
 
 ```text
-استقصِ طريقة عمل البحث في تطبيق Notes، واعرض الأدلة، ثم ابنِ ميزة مشابهة لمشروعي.
+افهم كيف يعمل البحث في تطبيق Notes، وأظهر لي الأدلة، وقم ببناء ميزة مماثلة لمشروعي.
 ```
 
 استبدل Notes بالتطبيق المستهدف وحدّد الميزة التي تريد فهمها.
 
 ### استخدام الطرفية
 
-افحص مجلد تطبيق JavaScript/Electron بعد فك حزمه، أو ملف ASAR:
+يتضمن REA واجهة CLI مستقلة تعمل دون وكيل:
 
 ```bash
-npx -y rea-agents@latest analyze-javascript-application /absolute/path/to/app --json
+rea inspect ./path/to/target
 ```
 
-تتضمن النتيجة الوحدات وعمليات الاستيراد وحدود Electron والأدلة المتعلقة بها. استبدل المسار بمسار هدفك، مثل `"D:/apps/example"` على Windows.
-
-لتثبيت أمر `rea` للاستخدام المعتاد:
-
-```bash
-npm install --global rea-agents
-rea --help
-```
-
-لتحليل الشيفرة الأصلية، هيّئ موفّرًا أولًا. راجع [دليل CLI وEvidence](../cli.md) لأوامر تحليل الشيفرة الأصلية، واختيار الموفّر، واللقطات، والاستخدام في السكربتات.
+راجع [دليل CLI وEvidence](../cli.md) للاطلاع على سير العمل واستيراد/تصدير حزم الأدلة.
 
 ### تحديث REA
 
 يتطور REA بسرعة، وتتضمن الإصدارات الجديدة إصلاحات متكررة للأخطاء. حافظ على تحديث نسختك.
 
-لواجهة CLI المثبّتة عبر npm:
+لواجهة CLI المثبّتة عبر `npm install --global` أو `bun add --global`:
 
 ```bash
 rea update
 ```
+
+تتطلب التحديثات العامة في Bun وجود إصدار Bun 1.2.17 أو أحدث. إذا كنت تستخدم إصدارًا أقدم من Bun، فقم بترقية Bun يدويًا قبل تشغيل `rea update`.
 
 لتحديث تسجيلات الوكلاء والمهارة، نفّذ أمر الإعداد الذي يعرضه التحديث.
 
@@ -123,135 +116,144 @@ rea update
 npx rea-agents@latest setup
 ```
 
-راجع تغييرات الإعداد وأعد تشغيل وكيلك. لأوامر CLI التي تنفّذها مرة واحدة، استخدم `npx rea-agents@latest` متبوعًا بالأمر المطلوب.
+راجع تغييرات الإعداد وأعد تشغيل وكيلك. لأوامر CLI التي تنفّذها لمرة واحدة، استخدم `npx rea-agents@latest` متبوعًا بالأمر المطلوب. وعند استخدام Bun، استخدم `bunx rea-agents@latest` بدلاً من `npx rea-agents@latest`.
 
 ## كيف يعمل REA
 
-يستدعي وكيلك REA عبر MCP لفحص الهدف وتتبع الشيفرة ذات الصلة. يعيد REA النتائج مع أدلتها. يستخدمها الوكيل لطرح أسئلة متابعة، أو شرح السلوك، أو كتابة تنفيذ واختباره. تستخدم أوامر CLI سير العمل نفسه.
-
-![مسار الاستقصاء في REA: يسأل وكيلك عن هدف محلي، ويفحصه REA ويتتبعه بأدوات التحليل، ثم يستخدم الوكيل الشيفرة والمراجع والجوانب غير المحسومة التي أعادتها الأدوات لشرح السلوك وتنفيذه واختباره.](../../website/public/assets/figures/rea-investigation-flow.svg)
+[![مسار الاستقصاء في REA: يسأل وكيلك عن هدف محلي، ويفحصه REA ويتتبعه بأدوات التحليل، ثم يستخدم الوكيل الشيفرة والمراجع والجوانب غير المحسومة التي أعادتها الأدوات لشرح السلوك وتنفيذه واختباره.](../../website/public/assets/figures/rea-investigation-flow.svg)](../../website/public/assets/figures/rea-investigation-flow.svg)
 
 [افتح الشكل بحجمه الكامل](../../website/public/assets/figures/rea-investigation-flow.svg).
 
-<a id="current-status"></a>
+<a id="current-status"></a><a id="what-you-can-analyze"></a>
 
 ## ما الذي يمكنك تحليله
 
 يتطلب REA إصدار Node.js 22.x (>=22.19) أو 24.x (>=24.11) أو 26+، إضافة إلى npm. تعتمد الأدوات الإضافية والأنظمة المضيفة المدعومة على الهدف:
 
-| الهدف                           | ما يعيده REA                                                                                               | المتطلبات والدليل                                                                                                             |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| الملفات الثنائية للشيفرة الأصلية | شيفرة شبه برمجية، وتعليمات تجميع، وسلاسل نصية، ورموز، واستدعاءات، ومراجع                                    | Hopper أو Ghidra أو IDA؛ [تحليل الشيفرة الأصلية](../native-investigation.md)                                                   |
-| بنية ELF دون تشغيل              | الأقسام والمقاطع والرموز ومعلومات إعادة التموضع الأصلية، وآليات الحماية المحتملة المستدلّ عليها بالفحص الثابت | pwntools يوفّره المستدعي على Linux x64؛ [تشخيص الملفات الثنائية](../binary-diagnostics.md)                                     |
-| شيفرة EVM البايتية              | محددات التوجيه، وإزاحات البايتات، والمعاملات المستنتجة، وقابلية تغيير الحالة                                | مدخل محلي يحمل بايتات خامًا أو تمثيلًا سداسيًا عشريًا على Linux x64؛ [دليل EVM دون تشغيل](../evm-bytecode.md)                      |
-| Rust binaries                   | Embedded cargo-auditable dependency list                                                                   | [Rust binaries](../rust-binaries.md)                                                                                          |
-| أعطال Linux المسجّلة             | سجلات note الخام، ومسجّلات المعالج/الإشارات لكل خيط مسجّل، وترشيحات اختيارية لخرائط الذاكرة                     | pwntools يوفّره المستدعي على Linux x64؛ GDB/pwndbg اختياريان؛ [الأعطال المسجّلة](../recorded-crashes.md)                         |
-| تثبيتات سطح المكتب              | عائلات وقت التشغيل، والملفات الداعمة، وعلامات المكونات، والخطوات التالية                                     | فحص محدود للملفات والترويسات；[تطبيقات سطح المكتب](../desktop-applications.md)                                                |
-| JavaScript / Electron           | الوحدات، وعمليات الاستيراد، وخرائط المصدر، والمسارات، وIPC، وعلاقات إضافات الشيفرة الأصلية                    | Node.js وnpm؛ [تحليل التطبيقات](../javascript-application-workflows.md)                                                       |
-| المواقع                         | بنية الصفحة، والسكربتات، وملاحظات الشبكة، ولقطات الشاشة المطلوبة                                            | متصفح من عائلة Chrome؛ [تحليل المتصفح](../browser-observation.md)                                                             |
-| تسجيلات الشبكة المحفوظة          | الطلبات، والاستجابات، ومحتويات الحمولة المتاحة، ومواضعها في المصدر                                          | HAR؛ وmitmdump على Linux لتسجيلات mitmproxy بصيغتها الأصلية؛ [دليل تسجيلات الشبكة](../web-network-captures.md)                   |
-| التقاط الحزم                    | نقاط النهاية وDNS وTLS SNI وتوزيع البروتوكولات وطلبات HTTP                                                  | tshark وcapinfos يوفّرهما المُستدعي؛ [دليل pcap](../pcap-analysis.md)                                                           |
-| تجميعات .NET                    | البيانات الوصفية، وتعليمات CIL، واعتماديات الشيفرة الأصلية المعلنة، ومقارنات البناء                         | فحص ثابت؛ [دليل الشيفرة المُدارة](../managed-code-analysis.md)                                                                 |
-| PyInstaller                     | CArchive, PYZ, Python bytecode                                                                             | Static inspection; [Python packaged applications](../python-packaged-applications.md)                                         |
-| حزم Android APK                 | تصريحات ملف manifest، والأصناف، والدوال الناتجة عن فك الترجمة، والمراجع                                     | JADX دون واجهة رسومية وJDK كامل على Linux/macOS/Windows x64؛ [دليل Android](../android-analysis.md)                           |
-| أجهزة Android                   | الأجهزة والحزم والعمليات والسجلات والدامبات ولقطات الشاشة ونقل APK/الملفات                                   | adb يوفّره المُستدعي (محاكي أو جهاز)؛ [دليل ADB](../adb-device-analysis.md)                                                     |
-| مشاريع JEB                      | وحدات المشروع من المحرك وبصمات المصنّفات والكود الزائف للأنواع/الدوال                                        | عميل JEB يبدأه المُستدعي ويقدّم MCP، ويُختار عبر REA_JEB_MCP_URL؛ [دليل JEB](../jeb-analysis.md)                                 |
-| موارد Android                   | البيان المفكوك الترميز وجداول السلاسل واللغات وحقائق الإصدار                                                 | مُشغّل Apktool يوفّره المُستدعي؛ [دليل الموارد](../apktool-resource-analysis.md)                                                  |
-| تطبيقات Flutter                 | بصمة لقطة Dart وهشوش المكتبات لكل ABI وأصل بناء المحرك                                                     | لا شيء (تحليل APK ساكن)؛ [دليل Flutter](../flutter-analysis.md)                                                                |
-| البرامج الثابتة                 | المناطق، ونتائج الاستخراج، وما يُمرّر إلى تحليل الشيفرة الأصلية                                                | Binwalk / Unblob على Linux؛ [دليل البرامج الثابتة](../firmware-analysis.md)                                                   |
-| الحزم المسجلة                   | حقول مختارة وقيم متكررة ومرشحات وقواعد فك الترميز                                                          | Linux: TShark 4.x + prlimit; [دليل التقاط الحزم](../packet-captures.md)                                                       |
-| الإشارات المنطقية المسجلة        | تعليقات مفكك الترميز ونطاقات العينات ومعلومات التشخيص                                                      | Linux: sigrok-cli 0.7.2 + prlimit; [دليل الإشارات](../signal-recordings.md)                                                    |
-| الحزم والموارد                  | قوائم الملفات، والبصمات، وملفات plist، وبنية حزم Apple، والموارد المستخرجة                                 | [دليل تحليل الملفات وJavaScript](../javascript-artifact-reconstruction.md)، [تطبيقات Apple](../apple-application-analysis.md) |
-| سلوك العمليات                   | مخرجات الطرفية، والتفاعلات، وملاحظات الخروج ونظام الملفات، ومقارنات التشغيل                                  | Linux/macOS مع PTY أصلي؛ [تسجيل سلوك العمليات](../process-capture.md)                                                         |
+| الهدف | ما يعيده REA | المتطلبات والدليل |
+| --- | --- | --- |
+| تثبيتات سطح المكتب | عائلات وقت التشغيل، والملفات الداعمة، وعلامات المكونات، والخطوات التالية | فحص محدود للملفات والترويسات؛ [تطبيقات سطح المكتب](../desktop-applications.md) |
+| الملفات الثنائية للشيفرة الأصلية | شيفرة شبه برمجية، وتعليمات تجميع، وسلاسل نصية، ورموز، واستدعاءات، ومراجع | Hopper أو Ghidra أو IDA؛ [تحليل الشيفرة الأصلية](../native-investigation.md) |
+| بنية ELF دون تشغيل | الأقسام والمقاطع والرموز ومعلومات إعادة التموضع الأصلية، وآليات الحماية المحتملة المستدلّ عليها بالفحص الثابت | pwntools يوفّره المستدعي على Linux x64؛ [تشخيص الملفات الثنائية](../binary-diagnostics.md) |
+| ملفات Go الثنائية | إصدار المترجم المضمّن، والوحدات، والبدائل، وإعدادات البناء | فحص ثابت مدمج لصيغ ELF/PE/thin Mach-O؛ لا يتطلب تثبيت Go |
+| كائنات شيفرة GPU | أهداف CUDA/HIP، ومعاملات وموارد نوى محددة، ونص PTX المحتفظ به | فحص ساكن مدمج لصيغ ELF/PE/fatbin/CUBIN/PTX؛ [كائنات شيفرة GPU](../gpu-code-objects.md) |
+| نماذج الذكاء الاصطناعي | البيانات الوصفية لـ GGUF وsafetensors، وتصريحات tensors، والإجماليات المستنتجة | فحص الترويسات المدمج؛ تجزئة اختيارية للملف بالكامل؛ [ملفات النماذج](../model-artifacts.md) |
+| بيانات IL2CPP الوصفية | صور تجميعات Unity global-metadata.dat، وأسماء الأنواع والدوال ونطاقات الفهارس | فك ترميز ساكن مدمج للإصدارات 24 و27 و29 و31 و39؛ لا يتطلب Unity |
+| حزم Godot PCK | جرد الأرشيف والاستخراج، وحقائق الترويسة/الدليل الأصلية وهويات المحتويات المحددة | صيغ ساكنة مدمجة 2 و3 و4؛ لا يتطلب Godot |
+| ملفات Rust الثنائية | أسماء حزم crates وإصداراتها ومصادرها المضمنة عبر cargo-auditable وروابط الاعتماديات | فحص ثابت مدمج لصيغ ELF/PE/thin Mach-O؛ [ملفات Rust الثنائية](../rust-binaries.md) |
+| ملفات WASM | التحقق من الصحة، والأقسام، وصيغ WAT الدقيقة للاستيراد والتصدير، وWAT المفكوك الترميز | أداة WABT 1.0.42 يوفّرها المستدعي؛ `inspect_wasm_artifact` |
+| شيفرة EVM البايتية | محددات التوجيه، وإزاحات البايتات، والمعاملات المستنتجة، وقابلية تغيير الحالة | مدخل محلي يحمل بايتات خامًا أو تمثيلًا سداسيًا عشريًا على Linux x64؛ [دليل EVM دون تشغيل](../evm-bytecode.md) |
+| قواعد بيانات SQLite | الجداول، والأعمدة، والفهارس، وطرق العرض، والمشغلات، وصفوف مختارة من الجداول العادية | لقطة محلية لقاعدة البيانات/WAL؛ إصدار Node.js 24.x (>=24.15) أو 26+ مع حدود SQLite الأصلية |
+| أعطال Linux المسجّلة | سجلات note الخام، ومسجّلات المعالج/الإشارات لكل خيط مسجّل، وترشيحات اختيارية لخرائط الذاكرة | pwntools يوفّره المستدعي على Linux x64؛ GDB/pwndbg اختياريان؛ [الأعطال المسجّلة](../recorded-crashes.md) |
+| JavaScript / Electron | الوحدات، وعمليات الاستيراد، وخرائط المصدر، والمسارات، وIPC، وعلاقات إضافات الشيفرة الأصلية | Node.js وnpm؛ على Linux: أداة `ps` متوافقة مع procps؛ [تحليل التطبيقات](../javascript-application-workflows.md) |
+| المواقع | بنية الصفحة، والسكربتات، وملاحظات الشبكة، ولقطات الشاشة المطلوبة | متصفح من عائلة Chrome؛ [تحليل المتصفح](../browser-observation.md) |
+| تسجيلات الشبكة المحفوظة | الطلبات، والاستجابات، ومحتويات الحمولة المتاحة، ومواضعها في المصدر | HAR أو Fiddler Everywhere SAZ؛ وmitmdump على Linux لتسجيلات mitmproxy بصيغتها الأصلية؛ [دليل تسجيلات الشبكة](../web-network-captures.md) |
+| تجميعات .NET | البيانات الوصفية، وتعليمات CIL، واعتماديات الشيفرة الأصلية المعلنة، ومقارنات البناء | فحص ثابت فقط؛ [دليل الشيفرة المُدارة](../managed-code-analysis.md) |
+| حزم Android APK | تصريحات ملف manifest، والأصناف، والدوال الناتجة عن فك الترجمة، والمراجع | JADX دون واجهة رسومية وJDK كامل على Linux/macOS/Windows x64؛ [دليل Android](../android-analysis.md) |
+| أجهزة Android | الأجهزة والحزم والعمليات والسجلات والدامبات ولقطات الشاشة ونقل APK/الملفات | adb يوفّره المُستدعي (محاكي أو جهاز فعلي)؛ [دليل ADB](../adb-device-analysis.md) |
+| مشاريع JEB | وحدات المشروع من المحرك وبصمات المصنّفات والكود الزائف للأنواع/الدوال | عميل JEB يبدأه المُستدعي ويقدّم MCP، ويُختار عبر REA_JEB_MCP_URL؛ [دليل JEB](../jeb-analysis.md) |
+| موارد Android | البيان المفكوك الترميز وجداول السلاسل واللغات وحقائق الإصدار | مُشغّل Apktool يوفّره المُستدعي؛ [دليل الموارد](../apktool-resource-analysis.md) |
+| تطبيقات Flutter | بصمة لقطة Dart وهشوش المكتبات لكل ABI وأصل بناء المحرك | لا شيء (تحليل APK ساكن)؛ [دليل Flutter](../flutter-analysis.md) |
+| البرامج الثابتة | المناطق، ونتائج الاستخراج، وما يُمرّر إلى تحليل الشيفرة الأصلية | Binwalk / Unblob على Linux؛ [دليل البرامج الثابتة](../firmware-analysis.md) |
+| الحزم المسجلة | حقول مختارة وقيم متكررة ومرشحات وقواعد فك الترميز | Linux: TShark 4.x + prlimit؛ [دليل التقاط الحزم](../packet-captures.md) |
+| ملخصات الحزم | نقاط النهاية وDNS وTLS SNI وتوزيع البروتوكولات وطلبات HTTP | tshark وcapinfos يوفّرهما المُستدعي (تم التحقق على Linux)؛ [دليل pcap](../pcap-analysis.md) |
+| الإشارات المنطقية المسجلة | تعليقات مفكك الترميز ونطاقات العينات ومعلومات التشخيص | Linux: sigrok-cli 0.7.2 + prlimit؛ [دليل الإشارات](../signal-recordings.md) |
+| الحزم والموارد | قوائم الملفات، والبصمات، وملفات plist، وبنية حزم Apple، والموارد المستخرجة | [دليل تحليل الملفات وJavaScript](../javascript-artifact-reconstruction.md)، [تطبيقات Apple](../apple-application-analysis.md) |
+| سلوك العمليات | مخرجات الطرفية، والتفاعلات، وملاحظات الخروج ونظام الملفات، ومقارنات التشغيل | Linux/macOS مع PTY أصلي؛ [تسجيل سلوك العمليات](../process-capture.md) |
+| ملفات PyInstaller التنفيذية | أعضاء CArchive، وإصدار Python، وسكربتات الإدخال، وشيفرة البايت المستخرجة | فحص ساكن فقط؛ [تطبيقات Python المجهزة](../python-packaged-applications.md) |
 
-يقرأ الفحص الثابت لـ JavaScript و.NET الملفات المقدّمة دون تشغيل التطبيق. يشغّل التسجيل أثناء التنفيذ الهدف المحدد أو يتفاعل معه بصلاحيات مستخدمك؛ ويشرح كل دليل للتسجيل أثناء التنفيذ آثاره.
+يقرأ الفحص الثابت لـ JavaScript و.NET الملفات المقدّمة دون تشغيل التطبيق. يشغّل التسجيل أثناء التشغيل الهدف المحدد أو يتفاعل معه بصلاحيات حسابك؛ ويشرح كل دليل للتسجيل أثناء التشغيل آثاره.
+
+لفحص الملفات الثنائية الأصلية دون تشغيل، يدعم REA أيضًا أداتي GNU objdump وRizin اللتين يوفّرهما المستدعي. راجع [دليل أدوات الهندسة العكسية](../reverse-engineering-tools.md) لمعرفة إعداد الموفّر وأوامر CLI وقيود الأدلة (Evidence). لا يقوم REA بتثبيت أو تحديث أي من هذين الموفّرين.
 
 <a id="choosing-a-deep-analysis-provider"></a>
 
-تختلف صيغ ملفات الشيفرة الأصلية والأنظمة المضيفة المدعومة باختلاف الموفّر. راجع [إعداد Hopper وGhidra](../installation.md#hopper)، و[دليل IDA](../ida-provider.md)، [Kuna](../kuna-provider.md)، و[دعم Ghidra التجريبي على Windows](../windows-ghidra-p0.md). يدعم Ghidra أيضًا [تحليل DOS ذي 16 بت](../ghidra-dos.md). لاختيار الموفّر، راجع [دليل CLI](../cli.md#choose-a-provider). تحقّق من [توفر الميزات في الإصدارات](../installation.md#released-package-and-main) للميزات المضافة بعد أحدث إصدار على npm.
+تختلف صيغ ملفات الشيفرة الأصلية والأنظمة المضيفة المدعومة باختلاف الموفّر. راجع [إعداد Hopper وGhidra](../installation.md#hopper)، و[دليل IDA](../ida-provider.md) (بما في ذلك جسر MCP أصلي اختياري)، و[دليل مفسر Kuna](../kuna-provider.md)، و[دعم Ghidra التجريبي على Windows](../windows-ghidra-p0.md). يدعم Ghidra أيضًا [تحليل DOS ذي 16 بت](../ghidra-dos.md). بالنسبة للملفات الثنائية الكبيرة، يمكنك زيادة المهلة الزمنية لبدء تشغيل الموفّر باستخدام `REA_GHIDRA_STARTUP_TIMEOUT_MS` أو `REA_HOPPER_STARTUP_TIMEOUT_MS`. لاختيار الموفّر، راجع [دليل CLI](../cli.md#choose-a-provider). تحقّق من [توفر الميزات في الإصدارات](../installation.md#released-package-and-main) للميزات المضافة بعد أحدث إصدار على npm.
+
+<a id="showcases"></a>
 
 ## دراسات الحالة
 
+<div align="center">
+
+<br />
+
 [![رسوم توضيحية لأمثلة توزيع الصوت في DX-Ball وجسر الحافظة في Notion وحلقة الطلقات في TH04](../assets/rea-showcases.png)](https://rea.tools/ar/showcase/)
+
+<br />
+
+</div>
 
 ### DX-Ball: إعادة بناء حساب توزيع الصوت بين القناتين
 
-تتبّع استدعاء صوت إلى الدالة المساعدة التي تحوّل الموضع إلى توزيع بين القناتين، وافحص التعليمات، وحوّل الشيفرة شبه البرمجية غير المكتملة إلى C. تجتاز إعادة البناء 3,205 حالات اختبار على x86 الأصلي، وتعيد إنتاج جميع بايتات الدالة المترجمة البالغ عددها 63 بايتًا.
+> **السؤال:** كيف تحسب لعبة DX-Ball توزيع الصوت المجسم للمؤثرات الصوتية لكرة المضرب؟
 
-[اقرأ دراسة الحالة](https://rea.tools/ar/showcase/dx-ball/) ·
-[مستودع إعادة البناء](https://github.com/N0zoM1z0/dx-ball)
+- **الهدف:** ملف ثنائي أصلي بصيغة PE 32-بت لـ Windows من عام 1996، جرى تحليله عبر Ghidra.
+- **ما كشفه REA:** حدّد الموفّر موضع جدول معاودة الاتصال للأصوات غير المتزامنة، ودالة ترسل موضع الكرة السيني (X) كقيمة تحكّم في توازن الصوت، وعلاقة خطية تعيّن الإحداثيات من 0 إلى 640 على قيم التوزيع في DirectSound من -10,000 إلى +10,000.
+- **النتيجة:** [تنفيذ بديل](https://rea.tools/ar/showcase/dx-ball/) متطابق في الشيفرة مع توثيق الحساب بالكامل.
 
 ### Notion: تتبّع جسر الحافظة في Electron
 
-اعثر على API الحافظة في عملية العرض، وتتبّعه عبر preload وIPC إلى العملية الرئيسية، وافحص صيغة الحافظة ذات التنسيق الغني.
+> **السؤال:** كيف يتجاوز تطبيق Notion لسطح المكتب قيود الحافظة في المتصفح لقراءة المحتوى بصيغ متعددة؟
 
-[اقرأ دراسة الحالة](https://rea.tools/ar/showcase/notion/)
+- **الهدف:** حزمة تطبيق Electron لنظام macOS، جرى فحصها عبر أدوات فك الحزم والتحليل الدلالي لـ JavaScript.
+- **ما كشفه REA:** حدّد أدوات فك الحزم سكربت preload المسؤول عن تسجيل معالج IPC لقراءة الحافظة، وتتبّع استدعاءات `clipboard.read()` في Electron عبر قنوات IPC، ووجد معالجة خاصة لبيانات `text/html` و`text/plain` المستلمة بالتوازي.
+- **النتيجة:** [شرح كامل لآلية العمل](https://rea.tools/ar/showcase/notion/) يوضح نمط المراسلة ونقاط الدخول في الشيفرة.
 
 ### TH04: استعادة حساب حلقة المقذوفات في DOS
 
-افحص تعليمات اللعبة الأصلية على PC-98 ذات 16 بت، واستعد حساب الزوايا الثابتة والموجّهة نحو الهدف، وقارن شيفرة C++ المعاد بناؤها بمخرجات المترجم المستخدم آنذاك.
+> **السؤال:** كيف تنشئ لعبة Lotus Land Story (TH04) نمط إطلاق المقذوفات الحلقي في معارك الزعماء؟
 
-[اقرأ دراسة الحالة](https://rea.tools/ar/showcase/th04/) ·
-[مستودع إعادة البناء](https://github.com/N0zoM1z0/th04)
+- **الهدف:** ملف ثنائي تنفيذي 16-بت لبيئة DOS، جرى تحليله عبر Ghidra مع امتداد معالج 16-بت.
+- **ما كشفه REA:** عثر التحليل على جدول مسبق الحساب لدوال الجيب وجيب التمام ذي 256 مدخلًا، ودالة الحلقة التي تقسم الدائرة 360 درجة على عدد المقذوفات المطلوب، ومسجّل إزاحة الزاوية المستخدم للدوران عبر الإطارات المتعاقبة.
+- **النتيجة:** [خوارزمية مكافئة](https://rea.tools/ar/showcase/th04/) تولّد الزوايا والإحداثيات المتطابقة مع مخرجات اللعبة الأصلية.
 
 إذا استخدمت REA لفحص هدف مثير للاهتمام، فنود الاطلاع عليه. شارك حالتك في [issue](https://github.com/morluto/rea/issues) أو [pull request](https://github.com/morluto/rea/pulls)، مع ذكر الهدف، وسؤالك، وكيف ساعدك REA، وما توصلت إليه.
+
+<a id="faq"></a>
 
 ## الأسئلة الشائعة
 
 <details>
-<summary><strong>أي وكلاء يمكنهم استخدام REA؟</strong></summary>
+<summary><strong>ما الوكلاء الذين يمكنهم استخدام REA؟</strong></summary>
 
-أي وكيل يدعم خوادم MCP المحلية. يهيّئ الإعداد [الوكلاء المدعومين](../installation.md#supported-agents)؛ ويمكن للعملاء الآخرين استخدام [تسجيل MCP يدويًا](../installation.md#mcp-registry).
+يسجّل `npx rea-agents setup` أداة REA تلقائيًا مع Claude Code، وCodex، وCursor، وGemini CLI، وWindsurf، وOpenCodeInterpreter، وLibreChat، وDevin، وQode، وHermes، وTheia، وAmp، وAugment، وSuperagent، وKimi CLI، وAider. راجع [الوكلاء المدعومين](../installation.md#supported-agents) للاطلاع على المتطلبات أو لخطوات [تسجيل MCP يدويًا](../installation.md#mcp-registry) لأي عميل متوافق مع بروتوكول Model Context Protocol.
 
 </details>
 
 <details>
-<summary><strong>هل أحتاج إلى Hopper أو Ghidra أو IDA؟</strong></summary>
+<summary><strong>ما الأدوات التي يحتاج REA إلى تثبيتها مسبقًا؟</strong></summary>
 
-يستخدم تحليل الشيفرة الأصلية المتعمق أحدها. يعمل الفحص الثابت لـ JavaScript و.NET دون محرك لتحليل الشيفرة الأصلية. يستطيع الإعداد تثبيت Hopper بعد الموافقة؛ أما Ghidra وIDA فيستخدمان تثبيتاتك الموجودة. راجع [إعداد الموفّرين](../installation.md#hopper).
+يحتاج REA نفسه إلى Node.js وnpm فقط. تختلف متطلبات التحليل بحسب نوع الهدف: لا يحتاج التحليل الثابت لـ JavaScript وElectron إلى أي أدوات خارجية؛ ويتطلب تحليل الشيفرة الأصلية تثبيت Hopper أو Ghidra أو IDA. راجع [إعداد الموفّرين](../installation.md#hopper) لمعرفة متطلبات كل موفّر.
 
 </details>
 
 <details>
 <summary><strong>هل أحتاج إلى تشغيل Hopper أولًا؟</strong></summary>
 
-يشغّل REA برنامج Hopper عندما تحتاج العملية إليه. على macOS، قد تظهر عند التشغيل الأول نافذة تطلب اختيار وضع العرض التجريبي أو تفعيل الترخيص. راجع [تشغيل Hopper واستكشاف الأخطاء](../installation.md#launcher-paths-and-troubleshooting).
+يشغّل REA برنامج Hopper عندما تحتاج العملية إليه. على macOS، قد تظهر عند التشغيل الأول نافذة تطلب اختيار وضع العرض التجريبي أو تفعيل الترخيص. أكمل هذا الإجراء في جلسة المستخدم نفسها قبل أول عملية CLI أو MCP أو مهمة دون تدخل. افتح Hopper يدويًا إذا لزم الأمر. راجع [تشغيل Hopper واستكشاف الأخطاء](../installation.md#launcher-paths-and-troubleshooting).
 
 </details>
 
 <details>
-<summary><strong>ماذا يفعل تثبيت المهارة من skills.sh؟</strong></summary>
+<summary><strong>هل يمكنني استخدام REA دون خادم MCP؟</strong></summary>
 
-توفّر المهارة تعليمات الاستقصاء لوكيلك. استخدم `npx rea-agents setup` لتسجيل خادم MCP الخاص بـ REA وتثبيت التعليمات المطابقة، ثم أعد تشغيل وكيلك. راجع [تثبيت المهارة وحدها](../installation.md#skill-only-installation).
-
-</details>
-
-<details>
-<summary><strong>ما الشيفرة التي يعيدها REA؟</strong></summary>
-
-يعيد تحليل الشيفرة الأصلية شيفرة شبه برمجية وتعليمات تجميع. يستعيد تحليل JavaScript/Electron الوحدات والعلاقات بينها. يستخدم وكيلك هذه النتائج لكتابة تنفيذ واختباره؛ وتقدّم [دراسات الحالة](#دراسات-الحالة) أمثلة عملية.
+نعم. توفر حزمة `rea-agents` واجهة سطر أوامر مستقلة (`rea`) تدعم الفحص، واستخراج الحزم، وتحليل الشيفرة الأصلية، والتقاط السلوك أثناء التشغيل مباشرة من الطرفية. راجع [دليل CLI](../cli.md). كما يمكنك [تثبيت المهارة وحدها](../installation.md#skill-only-installation) واستخدام أدوات التحليل الخارجية المفضلة لديك يدويًا.
 
 </details>
 
 <details>
-<summary><strong>هل يرفع REA تطبيقي؟</strong></summary>
-
-يحلّل REA الأهداف محليًا. يتلقى وكيلك نتائج الأدوات، ولموفّر النموذج الذي يستخدمه سياسة بيانات خاصة به.
-
-</details>
-
-<details>
-<summary><strong>ماذا أفعل إذا واجهت خطأ؟</strong></summary>
+<summary><strong>كيف أبلغ عن خطأ أو أطلب دعم صيغة جديدة؟</strong></summary>
 
 حدّث أولًا؛ فقد يكون إصدار حديث قد أصلح المشكلة بالفعل.
 
-لواجهة CLI المثبّتة عبر npm:
+لواجهة CLI المثبّتة عبر `npm install --global` أو `bun add --global`:
 
 ```bash
 rea update
 ```
 
-لإعداد الوكيل عبر `npx`:
+إذا كنت تستخدم `npx`:
 
 ```bash
 npx rea-agents@latest setup
@@ -261,32 +263,29 @@ npx rea-agents@latest setup
 
 </details>
 
+<a id="documentation"></a>
+
 ## التوثيق
 
-ابدأ بـ [الأدلة العملية](https://rea.tools/ar/guides/) على الموقع. للخيارات الدقيقة والمتطلبات وعقود النتائج:
+ابدأ بـ [الأدلة التطبيقية](https://rea.tools/ar/guides/) على الموقع.
+للاطلاع على الخيارات الدقيقة والمتطلبات المسبقة وعقود النتائج:
 
 - [التثبيت والإعداد](../installation.md): تسجيل الوكلاء، وتهيئة الموفّرين، والتحديثات، وإلغاء التثبيت.
 - [الجاهزية واستكشاف الأخطاء](../installation.md#check-readiness-for-your-task): تشخيص وكيل أو محرك تحليل محدد.
-- [CUDA / HIP](../gpu-code-objects.md)
-- [GGUF / safetensors](../model-artifacts.md)
 - [CLI وEvidence](../cli.md): الأوامر، واختيار الموفّر، واللقطات، والاستيراد/التصدير، وحالات الخروج.
 - [عقود MCP](../mcp-contracts.md) و[تعليمات الوكلاء](../mcp-prompts.md): نتائج الأدوات، والجلسات، والاستقصاءات الموجّهة.
-- [كتالوج الأدوات](../mcp-contracts.md#generated-catalog): قائمة الأدوات والموفّرين وأوامر CLI المولّدة أثناء البناء.
-- [خطة العمل](../roadmap.md): الأعمال المخطط لها ومتابعة القدرات.
+- [كتالوج الأدوات](../mcp-contracts.md#generated-catalog): حصر تم إنشاؤه للأدوات والموفّرين وأوامر CLI.
+- [خطة العمل](../roadmap.md): العمل المخطط له ومتابعة القدرات.
 
-أبلغ عن الثغرات وفق [SECURITY.md](../../SECURITY.md).
+أبلغ عن الثغرات الأمنية عبر [SECURITY.md](../../SECURITY.md).
 
 ## سجل النجوم
 
-🎉 **300,000 نجمة على GitHub — شكرًا لكم!**
-
-شكرًا لكل من يستخدم REA، ويبلّغ عن الأخطاء، ويقترح ميزات، ويختبر إصدارات البناء، ويساهم بالإصلاحات.
-
 <a href="https://www.star-history.com/?repos=morluto%2Frea&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date&amp;theme=dark&amp;legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date" />
-    <img alt="سجل نجوم REA على GitHub" src="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=morluto/rea&amp;type=date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=morluto/rea&amp;type=date" />
+    <img alt="سجل نجوم REA على GitHub" src="https://api.star-history.com/svg?repos=morluto/rea&amp;type=date" />
   </picture>
 </a>
 
@@ -294,30 +293,18 @@ npx rea-agents@latest setup
 
 راجع [DISCLAIMER.md](../../DISCLAIMER.md) للحصول على إرشادات الاستخدام المسؤول.
 
-REA مخصص للبحث والتعليم والتشغيل البيني وحفظ البرمجيات بشكل قانوني، ولتحليل البرمجيات التي تملكها أو لديك تفويض لفحصها.
+ينطبق موقف المشروع بشأن الاستخدام غير القانوني أو غير المصرح به على جميع إصدارات REA، وقنوات التوزيع، والمنصات؛ وتحتفظ كل نسخة بالتراخيص المطبقة عليها.
 
-The project's position on illegal or unauthorized use covers all REA
-versions, distribution channels, and platforms; each copy retains its
-applicable licenses.
+REA مخصص للأبحاث القانونية، والتعليم، والتشغيل البيني، وحفظ البرمجيات، وتحليل البرمجيات التي تملكها أو المصرح لك بفحصها.
 
 ## المساهمة
 
-نرحّب بمساعدتك في تطوير REA! [افتح issue](https://github.com/morluto/rea/issues) للإبلاغ عن خطأ أو اقتراح ميزة، أو [أرسل pull request](https://github.com/morluto/rea/pulls) لتحسين الشيفرة أو التوثيق.
-
-راجع [CONTRIBUTING.md](../../CONTRIBUTING.md) لإعداد بيئة التطوير والفحوص، و[دليل الاختبار](../testing.md) لمسارات التحقق، و[خريطة البنية](../architecture.mermaid) لهيكل المشروع.
+نرحب بالمساهمات! راجع [CONTRIBUTING.md](../../CONTRIBUTING.md) لمعرفة إرشادات التطوير وإعداد بيئة الاختبار، و[دليل الاختبار](../testing.md) لكيفية تشغيل الفحوصات محليًا، و[خريطة البنية](../architecture.mermaid) لفهم هيكل المشروع.
 
 ## الترخيص
 
 [MIT](../../LICENSE)
 
-REA-authored code is licensed under MIT. Third-party material retains its own
-licenses and copyright notices; see [Third-party notices](../../THIRD_PARTY_NOTICES.md)
-for the dependency inventory, preserved license texts, and external-tool terms.
+تخضع الشيفرة البرمجية المكتوبة لمشروع REA لترخيص MIT. وتحتفظ المواد التابعة لأطراف ثالثة بتراخيصها الخاصة وإشعارات حقوق النشر؛ راجع [إشعارات الأطراف الثالثة](../../THIRD_PARTY_NOTICES.md) للاطلاع على حصر الاعتماديات، ونصوص التراخيص المحفوظة، وشروط استخدام الأدوات الخارجية.
 
-**You must legally obtain and be authorized to use commercial tools**, including
-IDA Pro / Hex-Rays decompilers, Hopper, and JEB, under their applicable licenses.
-REA grants no tool license, key, or activation entitlement. Trials and demos
-remain subject to vendor terms, including user, feature, automation, and output
-sharing restrictions. Cracked copies, stolen keys, unauthorized key sharing,
-and bypassing license restrictions are not authorized. This guidance does not
-amend MIT or third-party licenses.
+**يجب الحصول قانونيًا على ترخيص واستخدام الأدوات التجارية بموجب تصريح رسمي**، بما في ذلك أدوات فك التجميع IDA Pro / Hex-Rays، وHopper، وJEB، بموجب تراخيصها المعمول بها. لا يمنح REA أي ترخيص لأي أداة أو مفتاح ترخيص أو حق تفعيل. وتظل الإصدارات التجريبية والعروض التوضيحية خاضعة لشروط المورّد، بما في ذلك القيود المفروضة على المستخدمين والميزات والأتمتة ومشاركة المخرجات. ولا يُصرَّح بأي نسخ مقرصنة، أو مفاتيح مسروقة، أو مشاركة غير مصرح بها للمفاتيح، أو تجاوز لقيود التراخيص. ولا تعدّل هذه التوجيهات ترخيص MIT أو تراخيص الأطراف الثالثة.
