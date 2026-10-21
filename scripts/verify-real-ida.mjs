@@ -57,6 +57,7 @@ const [
   { readIdaConfiguration },
   { createIdaMcpConnection },
   { idaAddressSchema },
+  { hexraysMetadataQuery, unwrapHexraysExecuteResult },
 ] = await Promise.all([
   importBuilt("contracts/toolContracts.js"),
   importBuilt("domain/evidence.js"),
@@ -64,6 +65,7 @@ const [
   importBuilt("ida/IdaConfiguration.js"),
   importBuilt("ida/IdaMcpConnection.js"),
   importBuilt("ida/IdaProtocolValues.js"),
+  importBuilt("ida/IdaHexraysProtocol.js"),
 ]);
 const config = await withVerifierResourceOwner(async (resourceScope) => {
   const registration = await readIdaConfiguration(
@@ -125,8 +127,12 @@ const observe = (input) => {
     assert.notEqual(evidence.raw_result.metadata_before.input_path, target);
     workspaces.add(dirname(evidence.raw_result.metadata_before.input_path));
     for (const observation of evidence.raw_result.observations) {
-      assert.equal(typeof observation.arguments.database, "string");
-      databases.add(observation.arguments.database);
+      const pin =
+        config.protocol === "hexrays"
+          ? observation.arguments.instance_id
+          : observation.arguments.database;
+      assert.equal(typeof pin, "string");
+      databases.add(pin);
     }
   }
   report.observations.push(evidence);
@@ -199,7 +205,8 @@ const mcp = async (cliDossier) => {
       ["procedure_address", { procedure: dossier.procedure.name }],
       ["procedure_assembly", { procedure: dossier.procedure.address }],
       ["procedure_callees", { procedure: dossier.procedure.address }],
-      ...(config.mode === "attached" && config.protocol !== "native"
+      ...((config.mode === "attached" || config.protocol === "hexrays") &&
+      config.protocol !== "native"
         ? [["procedure_callers", { procedure: dossier.procedure.address }]]
         : []),
       ["search_procedures", { pattern: dossier.procedure.name }],
@@ -392,6 +399,19 @@ const mcp = async (cliDossier) => {
     phase = completedPhase;
   }
 };
+/** A fresh official connection must bind the GUI database before queries. */
+const openHexraysGuiDatabase = async (upstream) => {
+  const list = await upstream.call("list_databases", {});
+  const gui = (list.instances ?? []).find(
+    (instance) => instance.backend === "gui",
+  );
+  if (gui === undefined)
+    throw new Error("The official IDA MCP no longer reports a GUI database.");
+  const opened = await upstream.call("open_database", { path: gui.path });
+  return typeof opened.instance_id === "string"
+    ? { instance_id: opened.instance_id }
+    : {};
+};
 const cleanup = async () => {
   phase = "upstream lifecycle verification";
   const upstream = createIdaMcpConnection(config, process.env);
@@ -401,10 +421,29 @@ const cleanup = async () => {
       const metadata =
         config.protocol === "native"
           ? await upstream.readResource("ida://idb/metadata")
-          : await upstream.call("get_metadata", {});
+          : config.protocol === "hexrays"
+            ? unwrapHexraysExecuteResult(
+                await upstream.call("execute_python", {
+                  code: hexraysMetadataQuery(),
+                  ...(await openHexraysGuiDatabase(upstream)),
+                }),
+              )
+            : await upstream.call("get_metadata", {});
       assert.equal(metadata.sha256.toLowerCase(), await digest());
       report.checks.push(
         "existing GUI target remains open with the original input identity",
+      );
+    } else if (config.protocol === "hexrays") {
+      const inventory = await upstream.call("list_databases", {});
+      assert.ok(
+        inventory.instances.every(
+          (instance) => !databases.has(instance.instance_id),
+        ),
+      );
+      for (const workspace of workspaces)
+        await assert.rejects(access(workspace), { code: "ENOENT" });
+      report.checks.push(
+        "owned database IDs absent from upstream discovery and private workspaces removed",
       );
     } else {
       const inventory = await upstream.call("idb_list", {});

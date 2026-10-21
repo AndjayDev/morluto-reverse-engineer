@@ -477,7 +477,7 @@ describe("native IDA provider observations", () => {
     expect(producer.calls.some(({ name }) => name.startsWith("idb_"))).toBe(
       false,
     );
-    const capabilities = idaCapabilities("attached", false, true);
+    const capabilities = idaCapabilities("attached", false, "native");
     expect(
       capabilities.find(({ operation }) => operation === "procedure_callers")
         ?.available,

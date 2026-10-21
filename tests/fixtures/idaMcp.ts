@@ -59,6 +59,12 @@ const modernNames = [
   "callgraph",
   "survey_binary",
 ];
+const hexraysNames = [
+  "open_database",
+  "execute_python",
+  "list_databases",
+  "close_database",
+];
 
 /** Stateful producer fixture at the real connection seam; no module mocking. */
 export class RecordingIdaMcp implements IdaMcpConnection {
@@ -89,14 +95,20 @@ export class RecordingIdaMcp implements IdaMcpConnection {
   constructor(
     readonly target: BinaryTarget,
     readonly mode: "attached" | "headless" = "attached",
+    readonly protocol?: "hexrays",
   ) {
     this.inputSha256 = target.sha256;
     this.inputPath = target.path;
   }
   /** Tool names the fake server advertises; defaults to the profile's full set. */
   tools?: readonly string[];
+  /** GUI databases the fake official server reports, with recorded digests. */
+  guiDatabases: readonly { path: string; sha256: string }[] = [];
+  #hexraysInstance: { id: string; path: string } | undefined;
+  #hexraysCurrentGui: { path: string; sha256: string } | undefined;
   async connect() {
     this.connects += 1;
+    if (this.protocol === "hexrays") return this.tools ?? hexraysNames;
     return this.tools ?? (this.mode === "attached" ? legacyNames : modernNames);
   }
   serverInfo() {
@@ -116,9 +128,145 @@ export class RecordingIdaMcp implements IdaMcpConnection {
     await this.beforeCall?.(name, args);
     const overridden = this.overrideCall?.(name, args);
     if (overridden !== undefined) return overridden;
+    if (
+      ["open_database", "list_databases", "close_database"].includes(name) ||
+      name === "execute_python"
+    )
+      return this.hexrays(name, args);
     if (["idb_open", "idb_list", "idb_close", "server_health"].includes(name))
       return this.lifecycle(name, args);
     return this.read(name, args);
+  }
+
+  /** Official-server seam: lifecycle tools plus translated execute_python. */
+  private hexrays(
+    name: string,
+    args: Readonly<Record<string, JsonValue>>,
+  ): JsonValue {
+    switch (name) {
+      case "list_databases":
+        return {
+          instances: [
+            ...(this.#hexraysInstance === undefined
+              ? []
+              : [
+                  {
+                    path: `${this.#hexraysInstance.path}.i64`,
+                    backend: "idalib",
+                    status: "current",
+                    instance_id: this.#hexraysInstance.id,
+                    error: null,
+                  },
+                ]),
+            ...this.guiDatabases.map((database) => ({
+              path: database.path,
+              backend: "gui",
+              status: "available",
+              instance_id: null,
+              error: null,
+            })),
+          ],
+        };
+      case "open_database": {
+        const path = args.path;
+        if (typeof path !== "string") throw new Error("Missing open path");
+        const gui = this.guiDatabases.find(
+          (database) => database.path === path,
+        );
+        if (gui !== undefined) {
+          this.#hexraysCurrentGui = gui;
+          return {
+            instance_id: null,
+            backend: "gui",
+            status: "current",
+            recovery: "none",
+          };
+        }
+        this.#hexraysInstance = { id: "fixture-official-instance", path };
+        this.inputPath = path;
+        return {
+          instance_id: this.#hexraysInstance.id,
+          backend: "idalib",
+          status: "current",
+          recovery: "none",
+        };
+      }
+      case "close_database": {
+        if (this.failClose) throw new Error("Worker release failed");
+        this.#hexraysInstance = undefined;
+        return { closed: true };
+      }
+      case "execute_python":
+        return {
+          result: this.hexraysRead(args.code),
+          stdout: "",
+          stderr: "",
+        };
+      default:
+        throw new Error(`Unimplemented producer tool ${name}`);
+    }
+  }
+
+  /** Answer one generated query by its stable code markers. */
+  private hexraysRead(code: unknown): JsonValue {
+    if (typeof code !== "string")
+      throw new Error("Missing execute_python code");
+    const fn = { address: "0x1000", name: "main", size: "0x20" };
+    if (code.includes("_rea_metadata()")) {
+      const current =
+        this.#hexraysCurrentGui ??
+        (this.#hexraysInstance === undefined
+          ? undefined
+          : { path: this.inputPath, sha256: this.inputSha256 });
+      if (current === undefined) return { error: "no open database" };
+      return {
+        path: current.path,
+        module: "target.elf",
+        sha256: current.sha256,
+        base: this.imageBase,
+      };
+    }
+    if (code.includes("_rea_health()"))
+      return {
+        status: "ok",
+        input_path: this.inputPath,
+        idb_path: `${this.inputPath}.i64`,
+        module: "target.elf",
+        imagebase: this.imageBase,
+        auto_analysis_ready: true,
+      };
+    if (code.includes("idautils.Functions()"))
+      return { data: [fn], next_offset: null };
+    if (code.includes("idautils.Strings()"))
+      return {
+        data: [{ address: "0x3000", string: "a.b\nC", length: 5 }],
+        next_offset: null,
+      };
+    if (code.includes("get_name_ea"))
+      return code.includes('"main"') ? fn : null;
+    if (code.includes("init_hexrays_plugin")) return this.pseudocode;
+    if (code.includes("generate_disasm_line"))
+      return {
+        name: "main",
+        start_ea: "0x1000",
+        lines: [{ address: "0x1000", instruction: "ret" }],
+        return_type: null,
+        arguments: null,
+      };
+    if (code.includes("XrefsTo(_start"))
+      return [{ address: "0x1004", name: "main", size: "0x20" }];
+    if (code.includes("fl_CN"))
+      return [{ address: "0x2000", name: "puts", type: "external" }];
+    if (code.includes("XrefsTo(_ea"))
+      return [{ address: "0x1004", type: "code", function: fn }];
+    if (code.includes("idautils.Segments()"))
+      return {
+        segments: [{ start: "0x0", end: "0x4000", size: "0x4000" }],
+        statistics: { total_segments: 1 },
+      };
+    if (code.includes("ida_funcs.get_func(_ea)"))
+      return code.includes('"0x1000"') ? fn : null;
+    throw new Error(`Unmapped official query: ${code.slice(0, 80)}`);
   }
 
   private read(

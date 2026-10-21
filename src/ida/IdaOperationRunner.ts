@@ -1,5 +1,10 @@
 import { z } from "zod";
 import {
+  hexraysLookupMisses,
+  hexraysRequest,
+  unwrapHexraysExecuteResult,
+} from "./IdaHexraysProtocol.js";
+import {
   nativeDecompileSchema,
   nativeDisassemblySchema,
   nativeCalleesSchema,
@@ -95,7 +100,7 @@ export class IdaOperationRunner {
   referencesTruncated: boolean | undefined;
   constructor(
     private readonly connection: IdaMcpConnection,
-    private readonly protocol: "legacy" | "modern" | "native",
+    private readonly protocol: "legacy" | "modern" | "native" | "hexrays",
     private readonly database?: string,
     private readonly options: {
       readonly signal?: AbortSignal | undefined;
@@ -111,15 +116,45 @@ export class IdaOperationRunner {
     } = {},
   ) {}
 
+  /**
+   * The official hexrays profile answers with the legacy shapes by
+   * construction, so every legacy branch also covers it.
+   */
+  private get legacyShaped(): boolean {
+    return this.protocol === "legacy" || this.protocol === "hexrays";
+  }
+
   async call(
     tool: string,
     args: Readonly<Record<string, JsonValue>>,
   ): Promise<JsonValue> {
     if (this.options.signal?.aborted) throw new AnalysisCancelledError(tool);
+    if (this.protocol === "hexrays") return this.callHexrays(tool, args);
     const scoped =
       this.database === undefined ? args : { ...args, database: this.database };
     const result = await this.connection.call(tool, scoped);
     this.raw.push({ tool, arguments: scoped, result });
+    if (this.options.signal?.aborted) throw new AnalysisCancelledError(tool);
+    return result;
+  }
+
+  /** One legacy-shaped request, translated to the official execute_python call. */
+  private async callHexrays(
+    tool: string,
+    args: Readonly<Record<string, JsonValue>>,
+  ): Promise<JsonValue> {
+    const translated = hexraysRequest(tool, args, this.database);
+    if (translated === undefined)
+      throw new AnalysisProtocolError(
+        `The official IDA MCP server does not expose a translation for ${tool}.`,
+      );
+    const reply = await this.connection.call(translated.name, translated.args);
+    const result = unwrapHexraysExecuteResult(reply);
+    this.raw.push({
+      tool: translated.name,
+      arguments: translated.args,
+      result,
+    });
     if (this.options.signal?.aborted) throw new AnalysisCancelledError(tool);
     return result;
   }
@@ -129,16 +164,16 @@ export class IdaOperationRunner {
     let offset: number | null = 0;
     while (offset !== null) {
       const current: number = offset;
-      const value: z.infer<typeof legacyPageSchema> | undefined =
-        this.protocol === "legacy"
-          ? legacyPageSchema.parse(
-              await this.call("list_functions", { offset, count: 100 }),
-            )
-          : modernPageSchema.parse(
-              await this.call("list_funcs", {
-                queries: { offset, count: 100 },
-              }),
-            )[0];
+      const value: z.infer<typeof legacyPageSchema> | undefined = this
+        .legacyShaped
+        ? legacyPageSchema.parse(
+            await this.call("list_functions", { offset, count: 100 }),
+          )
+        : modernPageSchema.parse(
+            await this.call("list_funcs", {
+              queries: { offset, count: 100 },
+            }),
+          )[0];
       if (value === undefined)
         throw new AnalysisProtocolError("IDA MCP omitted its function page.");
       result.push(...value.data.map((fn) => idaFunctionSchema.parse(fn)));
@@ -161,7 +196,7 @@ export class IdaOperationRunner {
    * addresses were reported by IDA itself.
    */
   async resolve(query: string, requestedBy?: string): Promise<IdaFunction> {
-    if (this.protocol !== "legacy") {
+    if (!this.legacyShaped) {
       const item = modernLookupSchema.parse(
         await this.call("lookup_funcs", { queries: [query] }),
       )[0];
@@ -170,12 +205,18 @@ export class IdaOperationRunner {
     const address = idaAddressSchema.safeParse(
       /^0x/iu.test(query) ? query : undefined,
     );
-    const found = idaFunctionSchema.parse(
-      await this.call(
-        address.success ? "get_function_by_address" : "get_function_by_name",
-        address.success ? { address: address.data } : { name: query },
-      ),
+    const raw = await this.call(
+      address.success ? "get_function_by_address" : "get_function_by_name",
+      address.success ? { address: address.data } : { name: query },
     );
+    // Only the official profile reports a missing selector as JSON null.
+    if (raw === null)
+      throw new AnalysisProtocolError(
+        address.success
+          ? hexraysLookupMisses.byAddress
+          : hexraysLookupMisses.byName,
+      );
+    const found = idaFunctionSchema.parse(raw);
     // Legacy producers may echo an interior query or call site in address.
     // Resolve the reported symbol again to obtain its actual entry, never infer from size.
     const entry = idaFunctionSchema.parse(
@@ -240,6 +281,23 @@ export class IdaOperationRunner {
 
   /** The containing function of an address, or why none contains it. */
   private async containingProcedure(address: string): Promise<JsonValue> {
+    if (this.protocol === "hexrays") {
+      const found = await this.call("get_function_by_address", { address });
+      if (found !== null)
+        return {
+          query_address: address,
+          found: true,
+          procedure: identity(idaFunctionSchema.parse(found)),
+        };
+      return {
+        query_address: address,
+        found: false,
+        procedure: null,
+        reason: (await this.addressInSegment(address))
+          ? "not_in_procedure"
+          : "outside_segments",
+      };
+    }
     const item = modernLookupSchema.parse(
       await this.call("lookup_funcs", { queries: [address] }),
     )[0];
@@ -310,7 +368,7 @@ export class IdaOperationRunner {
     let offset: number | null = 0;
     while (offset !== null) {
       const current: number = offset;
-      if (this.protocol === "legacy") {
+      if (this.legacyShaped) {
         const page = legacyPageSchema.parse(
           await this.call("list_strings", { offset, count: 0 }),
         );
@@ -348,7 +406,7 @@ export class IdaOperationRunner {
   }
 
   async assembly(fn: IdaFunction): Promise<IdaDisassembly> {
-    if (this.protocol === "legacy") {
+    if (this.legacyShaped) {
       const result = disassemblySchema.parse(
         await this.call("disassemble_function", { start_address: fn.address }),
       );
@@ -391,7 +449,7 @@ export class IdaOperationRunner {
   }
 
   async pseudocode(fn: IdaFunction): Promise<string | null> {
-    if (this.protocol === "legacy")
+    if (this.legacyShaped)
       return z
         .string()
         .nullable()
@@ -438,7 +496,7 @@ export class IdaOperationRunner {
   ): Promise<
     { address: string; type: string; function: IdaFunction | null }[]
   > {
-    if (this.protocol === "legacy")
+    if (this.legacyShaped)
       return legacyXrefsSchema.parse(
         await this.call("get_xrefs_to", { address }),
       );
@@ -482,7 +540,7 @@ export class IdaOperationRunner {
             : { available: true },
       };
     }
-    if (this.protocol === "legacy") {
+    if (this.legacyShaped) {
       const value = await this.call(
         direction === "callers" ? "get_callers" : "get_callees",
         { function_address: fn.address },
@@ -641,7 +699,7 @@ export class IdaOperationRunner {
         return lines(await this.assembly(fn)).join("\n");
       case "procedure_callers":
       case "procedure_callees": {
-        if (operation === "procedure_callers" && this.protocol !== "legacy")
+        if (operation === "procedure_callers" && !this.legacyShaped)
           throw new AnalysisProtocolError(
             "This IDA MCP profile cannot distinguish direct callers from other code references.",
           );

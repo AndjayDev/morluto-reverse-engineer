@@ -87,7 +87,7 @@ const parseIdaJsonText = (text: string): JsonValue => {
 /** Decode Python FastMCP's scalar wrapper without dropping structured dictionaries. */
 export const decodeIdaToolResult = (
   input: unknown,
-  protocol?: "native",
+  protocol?: "native" | "hexrays",
   diagnostic: IdaDiagnosticRedactor = createIdaDiagnosticRedactor(),
 ): JsonValue => {
   const result = toolResultSchema.parse(input);

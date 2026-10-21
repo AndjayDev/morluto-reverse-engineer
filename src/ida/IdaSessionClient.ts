@@ -25,6 +25,15 @@ import type { IdaConfiguration } from "./IdaConfiguration.js";
 import { idaProtocol } from "./IdaConfiguration.js";
 import type { IdaMcpConnection } from "./IdaMcpConnection.js";
 import { nativeTools } from "./IdaNativeProtocol.js";
+import {
+  hexraysCloseDatabaseSchema,
+  hexraysDatabaseListSchema,
+  hexraysHealthQuery,
+  hexraysMetadataQuery,
+  hexraysOpenDatabaseSchema,
+  hexraysTools,
+  unwrapHexraysExecuteResult,
+} from "./IdaHexraysProtocol.js";
 import { readSettledHealth } from "./IdaBusyHealth.js";
 import { isX86OnlyTarget } from "./IdaCallGraph.js";
 import { IdaOperationRunner } from "./IdaOperationRunner.js";
@@ -102,6 +111,20 @@ interface UpstreamSession {
   readonly input_path: string | null;
   /** Last inventoried activity; null before upstream reports it. */
   readonly is_active: boolean | null;
+}
+
+/**
+ * Protocol-normalized database inventory row used by lifecycle checks.
+ * The official server's rows carry no activity field and its GUI rows carry
+ * no instance id, so hexrays rows use `is_active: true` and the empty
+ * session id as this adapter's own bookkeeping values, not observations.
+ */
+interface LifecycleInventoryEntry {
+  readonly session_id: string;
+  readonly input_path: string;
+  readonly owned: boolean;
+  readonly backend: "worker" | "gui";
+  readonly is_active: boolean;
 }
 
 /** A failed cleanup retains its private workspace and reports the remaining resource. */
@@ -252,7 +275,8 @@ export class IdaSessionClient implements AnalysisClient {
       );
     if (
       operation === "procedure_callers" &&
-      idaProtocol(this.config) !== "legacy"
+      idaProtocol(this.config) !== "legacy" &&
+      idaProtocol(this.config) !== "hexrays"
     )
       return err(
         new AnalysisCapabilityUnavailableError(
@@ -566,16 +590,22 @@ export class IdaSessionClient implements AnalysisClient {
   async #initialize(): Promise<void> {
     const tools = new Set(await this.connection.connect());
     this.#callGraphAdvertised = tools.has("callgraph");
-    this.#surveyAdvertised = tools.has("survey_binary");
+    // The official profile serves the survey facet through its translation
+    // instead of advertising a tool of that name.
+    this.#surveyAdvertised =
+      tools.has("survey_binary") ||
+      (this.config.protocol === "hexrays" && this.config.mode === "headless");
     const expected =
       this.config.protocol === "native"
         ? nativeTools
-        : this.config.mode === "attached"
-          ? legacyTools
-          : modernTools;
+        : this.config.protocol === "hexrays"
+          ? hexraysTools
+          : this.config.mode === "attached"
+            ? legacyTools
+            : modernTools;
     const missing = expected.filter((name) => !tools.has(name));
     if (missing.length > 0) {
-      const summary = `IDA MCP ${this.config.protocol === "native" ? "native attached" : this.config.mode} compatibility profile is missing tools: ${missing.join(", ")}. Native attached mode requires the native IDA MCP tool catalog; legacy attached mode requires the legacy 1.4 profile; headless mode requires the database supervisor profile. See docs/ida-provider.md.`;
+      const summary = `IDA MCP ${this.config.protocol === "native" ? "native attached" : this.config.protocol === "hexrays" ? "official" : this.config.mode} compatibility profile is missing tools: ${missing.join(", ")}. Native attached mode requires the native IDA MCP tool catalog; legacy attached mode requires the legacy 1.4 profile; headless mode requires the database supervisor profile; the official profile requires the Hex-Rays ida-mcp server. See docs/ida-provider.md.`;
       // The caller cannot act on a profile mismatch it never sees, so the
       // missing names travel as adapter diagnostics rather than a bare message.
       throw new ProviderAdapterError("ida", "initialize", {
@@ -586,9 +616,11 @@ export class IdaSessionClient implements AnalysisClient {
           expected_profile:
             this.config.protocol === "native"
               ? "native"
-              : this.config.mode === "attached"
-                ? "legacy-1.4"
-                : "database-supervisor",
+              : this.config.protocol === "hexrays"
+                ? "official-hexrays"
+                : this.config.mode === "attached"
+                  ? "legacy-1.4"
+                  : "database-supervisor",
           missing_tools: [...missing],
           recovery:
             "Install an IDA MCP build that serves the selected profile; see docs/ida-provider.md.",
@@ -602,57 +634,218 @@ export class IdaSessionClient implements AnalysisClient {
       );
       await this.#workspace.copyInput();
       this.#openAttempted = true;
-      const raw = await this.connection.call("idb_open", {
-        input_path: this.#workspace.inputPath,
-        mode: "force_headless",
-        run_auto_analysis: true,
-        build_caches: true,
-        init_hexrays: true,
-        preferred_session_id: this.#workspace.sessionId,
-      });
-      this.#openCompleted = true;
-      // A completed but malformed/positive open may still own a live Worker.
-      // Only an explicit producer rejection keeps the old no-worker branch.
-      this.#openRejected = rejectedOpenDatabaseSchema.safeParse(raw).success;
-      this.#lifecycle.push(raw);
-      const opened = openDatabaseSchema.parse(raw);
-      if (
-        !sameIdaHostPath(opened.session.input_path, this.#workspace.inputPath)
-      )
-        throw new AnalysisProtocolError(
-          "IDA opened a different input than the private admitted target copy.",
+      if (this.config.protocol === "hexrays") {
+        await this.#openHeadlessHexrays();
+      } else {
+        const raw = await this.connection.call("idb_open", {
+          input_path: this.#workspace.inputPath,
+          mode: "force_headless",
+          run_auto_analysis: true,
+          build_caches: true,
+          init_hexrays: true,
+          preferred_session_id: this.#workspace.sessionId,
+        });
+        this.#openCompleted = true;
+        // A completed but malformed/positive open may still own a live Worker.
+        // Only an explicit producer rejection keeps the old no-worker branch.
+        this.#openRejected = rejectedOpenDatabaseSchema.safeParse(raw).success;
+        this.#lifecycle.push(raw);
+        const opened = openDatabaseSchema.parse(raw);
+        if (
+          !sameIdaHostPath(opened.session.input_path, this.#workspace.inputPath)
+        )
+          throw new AnalysisProtocolError(
+            "IDA opened a different input than the private admitted target copy.",
+          );
+        if (opened.session.session_id !== this.#workspace.sessionId)
+          throw new AnalysisProtocolError(
+            "IDA returned an adopted or unexpected session instead of the requested private worker.",
+          );
+        const inventory = databaseListSchema.parse(
+          await this.connection.call("idb_list", {}),
         );
-      if (opened.session.session_id !== this.#workspace.sessionId)
-        throw new AnalysisProtocolError(
-          "IDA returned an adopted or unexpected session instead of the requested private worker.",
+        this.#lifecycle.push(jsonValueSchema.parse(inventory));
+        const workspace = this.#workspace;
+        this.#recordBlockingSessions(
+          inventory.sessions.filter(
+            (entry) =>
+              entry.session_id === workspace.sessionId ||
+              sameIdaHostPath(entry.input_path, workspace.inputPath),
+          ),
         );
-      const inventory = databaseListSchema.parse(
-        await this.connection.call("idb_list", {}),
-      );
-      this.#lifecycle.push(jsonValueSchema.parse(inventory));
-      const workspace = this.#workspace;
-      this.#recordBlockingSessions(
-        inventory.sessions.filter(
-          (entry) =>
-            entry.session_id === workspace.sessionId ||
-            sameIdaHostPath(entry.input_path, workspace.inputPath),
-        ),
-      );
-      const entry = inventory.sessions.find(
-        ({ session_id }) => session_id === opened.session.session_id,
-      );
-      if (
-        entry?.owned !== true ||
-        entry.backend !== "worker" ||
-        entry.is_active !== true ||
-        !sameIdaHostPath(entry.input_path, this.#workspace.inputPath)
-      )
-        throw new AnalysisProtocolError(
-          "IDA did not return an active owned headless worker for the private input copy.",
+        const entry = inventory.sessions.find(
+          ({ session_id }) => session_id === opened.session.session_id,
         );
-      this.#database = opened.session.session_id;
+        if (
+          entry?.owned !== true ||
+          entry.backend !== "worker" ||
+          entry.is_active !== true ||
+          !sameIdaHostPath(entry.input_path, this.#workspace.inputPath)
+        )
+          throw new AnalysisProtocolError(
+            "IDA did not return an active owned headless worker for the private input copy.",
+          );
+        this.#database = opened.session.session_id;
+      }
+    } else if (this.config.protocol === "hexrays") {
+      await this.#bindAttachedHexrays();
     }
     this.#ready = true;
+  }
+
+  /**
+   * Open the private input copy in an official headless worker. The private
+   * copy cannot be open in the IDA GUI, so the server cannot adopt a GUI
+   * database for it, and the returned instance id pins every later call.
+   */
+  async #openHeadlessHexrays(): Promise<void> {
+    const workspace = this.#workspace;
+    if (workspace === undefined)
+      throw new AnalysisProtocolError(
+        "IDA headless session has no private workspace.",
+      );
+    const raw = await this.connection.call("open_database", {
+      path: workspace.inputPath,
+    });
+    this.#openCompleted = true;
+    this.#lifecycle.push(raw);
+    const opened = hexraysOpenDatabaseSchema.parse(raw);
+    if (
+      opened.backend !== "idalib" ||
+      typeof opened.instance_id !== "string" ||
+      opened.instance_id.length === 0
+    )
+      throw new AnalysisProtocolError(
+        "The official IDA MCP did not return a headless worker for the private admitted target copy.",
+      );
+    const inventory = hexraysDatabaseListSchema.parse(
+      await this.connection.call("list_databases", {}),
+    );
+    this.#lifecycle.push(jsonValueSchema.parse(inventory));
+    this.#recordBlockingSessions(
+      inventory.instances
+        .filter((entry) =>
+          this.#hexraysEntryMatchesWorkspace(
+            entry,
+            opened.instance_id ?? undefined,
+          ),
+        )
+        .map((entry) => this.#hexraysUpstreamSession(entry)),
+    );
+    const entry = inventory.instances.find(
+      ({ instance_id }) => instance_id === opened.instance_id,
+    );
+    if (
+      entry === undefined ||
+      entry.backend !== "idalib" ||
+      !this.#hexraysEntryMatchesWorkspace(entry, opened.instance_id)
+    )
+      throw new AnalysisProtocolError(
+        "The official IDA MCP inventory did not confirm the private headless worker for the admitted input copy.",
+      );
+    this.#database = opened.instance_id;
+  }
+
+  /**
+   * Bind the attached session to the GUI database whose recorded input
+   * matches the admitted target. GUI databases report no instance id, so
+   * queries stay bound through this connection's current database instead.
+   */
+  async #bindAttachedHexrays(): Promise<void> {
+    const inventory = hexraysDatabaseListSchema.parse(
+      await this.connection.call("list_databases", {}),
+    );
+    this.#lifecycle.push(jsonValueSchema.parse(inventory));
+    const guiDatabases = inventory.instances.filter(
+      ({ backend, status }) => backend === "gui" && status === "available",
+    );
+    if (guiDatabases.length === 0)
+      throw new AnalysisProtocolError(
+        "The official IDA MCP reports no database open in the IDA GUI; open the selected target in IDA or use headless mode.",
+      );
+    const tried: string[] = [];
+    for (const candidate of guiDatabases) {
+      const opened = hexraysOpenDatabaseSchema.parse(
+        await this.connection.call("open_database", { path: candidate.path }),
+      );
+      this.#lifecycle.push(jsonValueSchema.parse(opened));
+      let metadata: JsonValue | undefined;
+      let readFailure: string | undefined;
+      try {
+        metadata = await this.#hexraysExecute(
+          hexraysMetadataQuery(),
+          opened.instance_id ?? undefined,
+        );
+      } catch (cause) {
+        // A GUI database whose recorded input cannot be read cannot match,
+        // but a transport failure must surface instead of looking like one.
+        if (
+          cause instanceof ProviderAdapterError ||
+          cause instanceof AnalysisTimeoutError ||
+          cause instanceof AnalysisResourceConstraintError
+        )
+          throw cause;
+        readFailure = cause instanceof Error ? cause.message : String(cause);
+      }
+      const parsed = legacyMetadataSchema.safeParse(metadata);
+      if (
+        parsed.success &&
+        parsed.data.sha256.toLowerCase() === this.target.sha256.toLowerCase()
+      ) {
+        this.#database = opened.instance_id ?? undefined;
+        return;
+      }
+      const reason =
+        readFailure !== undefined
+          ? `identity read failed: ${readFailure}`
+          : !parsed.success
+            ? "identity observation malformed"
+            : parsed.data.sha256 === ""
+              ? "input digest unavailable"
+              : "input digest mismatch";
+      tried.push(`${candidate.path} (${reason})`);
+    }
+    throw new AnalysisProtocolError(
+      `No database open in the IDA GUI matches the selected target ${this.target.path}; GUI databases tried: ${tried.join(", ")}. Open that target in IDA or use headless mode.`,
+    );
+  }
+
+  /** One read-only official-server query against a bound database. */
+  async #hexraysExecute(
+    code: string,
+    instanceId: string | undefined,
+  ): Promise<JsonValue> {
+    return unwrapHexraysExecuteResult(
+      await this.connection.call("execute_python", {
+        code,
+        ...(instanceId === undefined ? {} : { instance_id: instanceId }),
+      }),
+    );
+  }
+
+  #hexraysEntryMatchesWorkspace(
+    entry: z.infer<typeof hexraysDatabaseListSchema>["instances"][number],
+    instanceId: string | undefined,
+  ): boolean {
+    const workspace = this.#workspace;
+    if (workspace === undefined) return false;
+    return (
+      (instanceId !== undefined && entry.instance_id === instanceId) ||
+      this.#inventoryMatchesWorkspacePath(entry.path, workspace.inputPath)
+    );
+  }
+
+  /** Inventory rows keep the adapter's ownership vocabulary for diagnostics. */
+  #hexraysUpstreamSession(
+    entry: z.infer<typeof hexraysDatabaseListSchema>["instances"][number],
+  ): UpstreamSession & { readonly owned: boolean } {
+    return {
+      session_id: entry.instance_id ?? "",
+      backend: entry.backend === "gui" ? "gui" : "worker",
+      owned: entry.backend === "idalib",
+      input_path: entry.path,
+      is_active: true,
+    };
   }
 
   async #nativeMetadata(): Promise<JsonValue> {
@@ -672,7 +865,9 @@ export class IdaSessionClient implements AnalysisClient {
       const raw =
         this.config.protocol === "native"
           ? await this.#nativeMetadata()
-          : await this.connection.call("get_metadata", {});
+          : this.config.protocol === "hexrays"
+            ? await this.#hexraysExecute(hexraysMetadataQuery(), this.#database)
+            : await this.connection.call("get_metadata", {});
       const metadata = legacyMetadataSchema.parse(raw);
       this.#metadata = raw;
       onObserved?.(raw);
@@ -690,11 +885,14 @@ export class IdaSessionClient implements AnalysisClient {
         throw new AnalysisProtocolError(
           "IDA headless session has no database binding.",
         );
-      const raw = await readSettledHealth(this.connection, {
-        database: this.#database,
-        timeoutMs: this.config.timeoutMs,
-        signal: options?.signal,
-      });
+      const raw =
+        this.config.protocol === "hexrays"
+          ? await this.#hexraysExecute(hexraysHealthQuery(), this.#database)
+          : await readSettledHealth(this.connection, {
+              database: this.#database,
+              timeoutMs: this.config.timeoutMs,
+              signal: options?.signal,
+            });
       const metadata = modernHealthSchema.parse(raw);
       this.#metadata = raw;
       onObserved?.(raw);
@@ -756,7 +954,10 @@ export class IdaSessionClient implements AnalysisClient {
       ? []
       : [
           {
-            session_id: this.#workspace.sessionId,
+            session_id:
+              this.config.protocol === "hexrays"
+                ? (this.#database ?? "")
+                : this.#workspace.sessionId,
             backend: "worker",
             owned: null,
             input_path: null,
@@ -793,7 +994,98 @@ export class IdaSessionClient implements AnalysisClient {
     return entries.length > 0;
   }
 
+  /** One protocol-normalized database inventory row for lifecycle checks. */
+  async #lifecycleInventory(): Promise<readonly LifecycleInventoryEntry[]> {
+    if (this.config.protocol === "hexrays") {
+      const list = hexraysDatabaseListSchema.parse(
+        await this.connection.call("list_databases", {}),
+      );
+      return list.instances.map((entry) => ({
+        session_id: entry.instance_id ?? "",
+        input_path: entry.path,
+        owned: entry.backend === "idalib",
+        backend:
+          entry.backend === "gui" ? ("gui" as const) : ("worker" as const),
+        is_active: true,
+      }));
+    }
+    return databaseListSchema.parse(await this.connection.call("idb_list", {}))
+      .sessions;
+  }
+
+  /** A headless worker the inventory proves this session owns privately. */
+  #inventoryOwnsPrivateWorker(entry: LifecycleInventoryEntry): boolean {
+    const workspace = this.#workspace;
+    if (workspace === undefined) return false;
+    if (entry.owned !== true || entry.backend !== "worker") return false;
+    if (this.config.protocol === "hexrays")
+      return (
+        entry.session_id !== "" &&
+        this.#inventoryMatchesWorkspacePath(
+          entry.input_path,
+          workspace.inputPath,
+        )
+      );
+    return (
+      entry.session_id === workspace.sessionId &&
+      sameIdaHostPath(entry.input_path, workspace.inputPath)
+    );
+  }
+
+  /** An entry still claiming the requested worker identity or private input. */
+  #inventoryMatchesWorkspace(entry: LifecycleInventoryEntry): boolean {
+    const workspace = this.#workspace;
+    if (workspace === undefined) return false;
+    if (this.config.protocol === "hexrays")
+      return this.#inventoryMatchesWorkspacePath(
+        entry.input_path,
+        workspace.inputPath,
+      );
+    return (
+      entry.session_id === workspace.sessionId ||
+      sameIdaHostPath(entry.input_path, workspace.inputPath)
+    );
+  }
+
+  #inventoryMatchesReleased(
+    entry: LifecycleInventoryEntry,
+    database: string,
+  ): boolean {
+    return (
+      entry.session_id === database || this.#inventoryMatchesWorkspace(entry)
+    );
+  }
+
+  /**
+   * The official server names an idalib worker's database after its input
+   * with the engine's database suffix, so both forms claim the input.
+   */
+  #inventoryMatchesWorkspacePath(
+    entryPath: string,
+    inputPath: string,
+  ): boolean {
+    return (
+      sameIdaHostPath(entryPath, inputPath) ||
+      sameIdaHostPath(entryPath, `${inputPath}.i64`) ||
+      sameIdaHostPath(entryPath, `${inputPath}.idb`)
+    );
+  }
+
   async #closeDatabase(database: string): Promise<void> {
+    if (this.config.protocol === "hexrays") {
+      // The official release drops this connection's lease only; it never
+      // saves and never closes a database that the IDA GUI keeps open.
+      const closed = hexraysCloseDatabaseSchema.parse(
+        await this.connection.call("close_database", {
+          instance_id: database,
+        }),
+      );
+      if (closed.closed !== true)
+        throw new AnalysisProtocolError(
+          "The official IDA MCP did not confirm the headless worker release.",
+        );
+      return;
+    }
     const response = await this.connection.call("idb_close", {
       database,
       save: false,
@@ -822,26 +1114,15 @@ export class IdaSessionClient implements AnalysisClient {
     try {
       if (this.#workspace !== undefined && this.#openAttempted) {
         if (this.#database === undefined) {
-          const inventory = databaseListSchema.parse(
-            await this.connection.call("idb_list", {}),
-          );
-          const workspace = this.#workspace;
-          this.#database = inventory.sessions.find(
-            (entry) =>
-              entry.owned &&
-              entry.backend === "worker" &&
-              entry.session_id === workspace.sessionId &&
-              sameIdaHostPath(entry.input_path, workspace.inputPath),
+          const inventory = await this.#lifecycleInventory();
+          this.#database = inventory.find((entry) =>
+            this.#inventoryOwnsPrivateWorker(entry),
           )?.session_id;
           // Every same-input session and any entry under the requested ID,
           // whatever its input, stays reported until a later successful
           // inventory confirms release.
           const blocked = this.#recordBlockingSessions(
-            inventory.sessions.filter(
-              (entry) =>
-                entry.session_id === workspace.sessionId ||
-                sameIdaHostPath(entry.input_path, workspace.inputPath),
-            ),
+            inventory.filter((entry) => this.#inventoryMatchesWorkspace(entry)),
           );
           if (this.#database === undefined && blocked)
             throw new AnalysisProtocolError(
@@ -862,16 +1143,10 @@ export class IdaSessionClient implements AnalysisClient {
             this.#databaseCloseCompleted = true;
             this.#forgetReleasedSession(this.#database);
           }
-          const inventory = databaseListSchema.parse(
-            await this.connection.call("idb_list", {}),
-          );
-          const remaining = inventory.sessions.filter(
-            (entry) =>
-              entry.session_id === this.#database ||
-              sameIdaHostPath(
-                entry.input_path,
-                this.#workspace?.inputPath ?? "",
-              ),
+          const inventory = await this.#lifecycleInventory();
+          const released = this.#database;
+          const remaining = inventory.filter((entry) =>
+            this.#inventoryMatchesReleased(entry, released),
           );
           if (this.#recordBlockingSessions(remaining))
             throw new AnalysisProtocolError(

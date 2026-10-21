@@ -30,6 +30,7 @@ import {
   readIdaConfiguration,
   type IdaConfiguration,
   idaConfigurationError,
+  idaProtocol,
 } from "./IdaConfiguration.js";
 import {
   createIdaMcpConnection,
@@ -82,9 +83,11 @@ export class IdaProvider implements AnalysisProviderCandidate {
   }
   capabilities(): readonly CapabilityDescriptor[] {
     const profiles = [
-      ...idaCapabilities("attached", false, false),
-      ...idaCapabilities("attached", true, true),
-      ...idaCapabilities("headless", true, false),
+      ...idaCapabilities("attached", false, "legacy"),
+      ...idaCapabilities("attached", true, "native"),
+      ...idaCapabilities("headless", true, "modern"),
+      ...idaCapabilities("attached", true, "hexrays"),
+      ...idaCapabilities("headless", true, "hexrays"),
     ];
     const byOperation = new Map<string, (typeof profiles)[number][]>();
     for (const capability of profiles) {
@@ -169,7 +172,7 @@ export class IdaProvider implements AnalysisProviderCandidate {
       ? idaCapabilities(
           config.value.mode,
           "command" in config.value,
-          config.value.protocol === "native",
+          idaProtocol(config.value),
         )
       : this.capabilities();
     const registrationDiagnostics = {
@@ -333,9 +336,11 @@ export class IdaProvider implements AnalysisProviderCandidate {
       compatibility_profile:
         config.value.protocol === "native"
           ? "native-ida-mcp"
-          : config.value.mode === "attached"
-            ? "legacy-1.4"
-            : "database-supervisor",
+          : config.value.protocol === "hexrays"
+            ? "official-hexrays"
+            : config.value.mode === "attached"
+              ? "legacy-1.4"
+              : "database-supervisor",
       database_revision: null,
       cache_policy: "live",
       registration_digest: createHash("sha256")

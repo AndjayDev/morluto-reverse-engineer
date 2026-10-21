@@ -40,6 +40,9 @@ export const idaProfileAdmits = (
   mode: "attached" | "headless",
 ): boolean => mode === "headless" || !HEADLESS_ONLY_OPERATIONS.has(operation);
 
+/** The compatibility profiles REA's IDA adapter can drive upstream. */
+export type IdaProtocolProfile = "legacy" | "modern" | "native" | "hexrays";
+
 /** Shared limitations of observations from an externally mutable analysis database. */
 export const IDA_LIMITATIONS = Object.freeze([
   "Provider version identifies the REA IDA adapter. IDA engine and upstream distribution versions are unknown unless separately observed; MCP serverInfo is reported independently.",
@@ -69,18 +72,21 @@ const ATTACHED_GUI_NAVIGATION_OPERATIONS: ReadonlySet<IdaOperation> = new Set([
 export const idaCapabilities = (
   mode: "attached" | "headless",
   stdio: boolean,
-  native = false,
+  protocol: IdaProtocolProfile = "legacy",
 ): readonly CapabilityDescriptor[] =>
   IDA_OPERATIONS.filter((operation) => idaProfileAdmits(operation, mode)).map(
     (operation) => ({
       provider: IDA_PROVIDER_IDENTITY,
       operation,
-      ...((mode === "headless" || native) && operation === "procedure_callers"
+      ...(((mode === "headless" && protocol !== "hexrays") ||
+        protocol === "native") &&
+      operation === "procedure_callers"
         ? ({
             available: false,
-            reason: native
-              ? "The native upstream profile reports code references without proving direct call edges."
-              : "The modern upstream profile reports code references without proving direct call edges.",
+            reason:
+              protocol === "native"
+                ? "The native upstream profile reports code references without proving direct call edges."
+                : "The modern upstream profile reports code references without proving direct call edges.",
           } as const)
         : ({ available: true, reason: null } as const)),
       cachePolicy: "live",
@@ -89,7 +95,8 @@ export const idaCapabilities = (
         launchesProcess: stdio || mode === "headless",
         mayShowUi:
           mode === "attached" &&
-          (native
+          protocol !== "hexrays" &&
+          (protocol === "native"
             ? operation === "procedure_pseudo_code" ||
               operation === "analyze_function"
             : ATTACHED_GUI_NAVIGATION_OPERATIONS.has(operation)),
@@ -99,7 +106,7 @@ export const idaCapabilities = (
         requiresRoot: false,
       },
       limitations:
-        native &&
+        protocol === "native" &&
         (operation === "list_strings" || operation === "search_strings")
           ? [...IDA_LIMITATIONS, IDA_NATIVE_STRING_LIMITATION]
           : IDA_LIMITATIONS,

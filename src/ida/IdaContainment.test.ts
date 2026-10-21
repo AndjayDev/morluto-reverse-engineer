@@ -149,8 +149,11 @@ const found = (query: string, fn: typeof function_) => ({
 
 describe("IDA containment capabilities", () => {
   it("declares document identity in both profiles and address resolution only in headless", () => {
-    const declared = (mode: "attached" | "headless", native = false) =>
-      idaCapabilities(mode, false, native)
+    const declared = (
+      mode: "attached" | "headless",
+      protocol: "legacy" | "native" | "hexrays" = "legacy",
+    ) =>
+      idaCapabilities(mode, false, protocol)
         .map(({ operation }) => operation)
         .filter(
           (operation) =>
@@ -173,7 +176,12 @@ describe("IDA containment capabilities", () => {
       "list_documents",
     ]);
     expect(declared("attached")).toEqual(["list_documents"]);
-    expect(declared("attached", true)).toEqual(["list_documents"]);
+    expect(declared("attached", "native")).toEqual(["list_documents"]);
+    expect(declared("attached", "hexrays")).toEqual(["list_documents"]);
+    expect(declared("headless", "hexrays")).toEqual([
+      "resolve_containing_procedure",
+      "list_documents",
+    ]);
     expect(
       idaCapabilities("attached", false).map(({ operation }) => operation),
       "attached profiles declare the bound document but not address resolution",
