@@ -112,3 +112,6 @@ A fifth round merged the write-plan branch at dc5e2aad, which weighs an update's
 replaces it and resets collection spellings on reset or load. It also makes a request whose answer the probe lost,
 still uncompared, so that a later read sees its effect: a lost delete followed by a 404 now agrees. Its test fails on
 the previous head. The six environments compare as in the table.
+
+A sixth round merged the write-plan branch at fe8ab584, whose gate erases the fields later writes and recorded
+outcomes overwrite from earlier write effects. The six environments again compare exactly as in the table.
