@@ -68,3 +68,27 @@ it("retains own binary dictionary facts when a prototype key changes the decoder
     expect.stringContaining("__proto__"),
   );
 });
+
+it("rejects an invalid binary date marker", () => {
+  const archive = buildBinary({
+    $archiver: "NSKeyedArchiver",
+    $version: 100000,
+    $objects: ["$null", new Date("2001-01-01T00:00:00.100Z")],
+    $top: { root: { UID: 1 } },
+  });
+
+  const bytes = Buffer.from(archive);
+  let dateOffset = -1;
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0x33) {
+      dateOffset = i;
+      break;
+    }
+  }
+  expect(dateOffset).toBeGreaterThan(0);
+  bytes[dateOffset] = 0x30;
+
+  expect(() =>
+    decodeKeyedArchiveBytes(bytes, { offset: 0, limit: 10 }),
+  ).toThrow("binary plist date object is invalid or truncated");
+});

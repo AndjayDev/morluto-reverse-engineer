@@ -334,6 +334,24 @@ export const estimateBinaryPlistExpansion = (
       if (size < 0 || cursor > objectsEnd)
         throw new TypeError("binary plist extended object size is invalid");
     }
+    if (type === 0) {
+      if (marker !== 0x00 && marker !== 0x08 && marker !== 0x09)
+        throw new TypeError("binary plist singleton object is invalid");
+      continue;
+    }
+    if (type === 1 || type === 2) {
+      if ((marker & 0x0f) > 4)
+        throw new TypeError("binary plist numeric scalar object is invalid");
+      const byteLength = 1 << (marker & 0x0f);
+      if (cursor + byteLength > objectsEnd)
+        throw new TypeError("binary plist scalar object is truncated");
+      continue;
+    }
+    if (type === 3) {
+      if (marker !== 0x33 || cursor + 8 > objectsEnd)
+        throw new TypeError("binary plist date object is invalid or truncated");
+      continue;
+    }
     if (type === 4 || type === 5 || type === 6) {
       const byteLength = type === 6 ? size * 2 : size;
       if (cursor + byteLength > objectsEnd)
