@@ -154,7 +154,9 @@ startup; an explicit Ghidra startup timeout of 2700000 ms produces a 2820000 ms
 tool timeout. The startup allowance follows an explicitly selected Ghidra or
 Hopper provider, and otherwise uses the larger known Ghidra/Hopper deadline.
 An explicit `REA_JEB_MCP_TIMEOUT_MS` request budget also contributes to that
-maximum. For `ida` or `auto` selection, a valid IDA registration's parsed
+maximum. An explicit `REA_GHIDRA_DECOMPILE_TIMEOUT_SECONDS` is added to the
+Ghidra startup allowance, because one cold call can import the target and then
+decompile up to that limit; setup forwards it into the registration. For `ida` or `auto` selection, a valid IDA registration's parsed
 `timeoutMs` also contributes to that maximum; its default is 300000 ms.
 Setup forwards these explicitly selected REA deadlines and the input schema
 profile into the registration; unrelated process values are omitted. An
@@ -252,7 +254,9 @@ the default Ghidra allowance; an explicit Ghidra startup timeout of 2700
 seconds yields 2820 seconds. Setup preserves positive caller-selected timeout
 values in the REA entry, and doctor reports a non-blocking advisory when a tool
 timeout is shorter than the known provider allowance. An explicitly selected
-JEB request budget also contributes to the allowance. A configured IDA
+JEB request budget also contributes to the allowance, and an explicit
+`REA_GHIDRA_DECOMPILE_TIMEOUT_SECONDS` is added to the Ghidra startup
+allowance. A configured IDA
 registration's parsed `timeoutMs` contributes for `ida` or `auto` selection.
 An explicit `REA_JADX_OPERATION_TIMEOUT_MS` is forwarded with the JADX
 registration but does not contribute; raise `tool_timeout_sec` to cover a

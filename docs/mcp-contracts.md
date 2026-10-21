@@ -819,7 +819,9 @@ operation headroom: 450 seconds with the default Ghidra allowance, or 2820
 seconds with `REA_GHIDRA_STARTUP_TIMEOUT_MS=2700000`. Positive caller-selected
 deadlines remain unchanged. Doctor reports an informational recommendation
 when a configured deadline is shorter than the known provider allowance. An
-explicit JEB upstream request budget also contributes to that allowance.
+explicit JEB upstream request budget also contributes to that allowance. An
+explicit `REA_GHIDRA_DECOMPILE_TIMEOUT_SECONDS` is added to the Ghidra startup
+allowance, so a cold import followed by a bounded decompile fits one call.
 
 For an already connected client using the pinned SDK, request options are the
 **second** argument of `callTool`:

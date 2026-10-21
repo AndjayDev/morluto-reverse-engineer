@@ -143,6 +143,12 @@ const validatedDetails = (
     timeoutInputs: {
       analysisProvider: validated.value.REA_ANALYSIS_PROVIDER,
       ghidraStartupTimeoutMs: validated.value.REA_GHIDRA_STARTUP_TIMEOUT_MS,
+      ...(validated.value.REA_GHIDRA_DECOMPILE_TIMEOUT_SECONDS === undefined
+        ? {}
+        : {
+            ghidraDecompileTimeoutMs:
+              validated.value.REA_GHIDRA_DECOMPILE_TIMEOUT_SECONDS * 1000,
+          }),
       hopperStartupTimeoutMs: validated.value.REA_HOPPER_STARTUP_TIMEOUT_MS,
       ...(validated.value.REA_JEB_MCP_TIMEOUT_MS === undefined
         ? {}
