@@ -16,7 +16,10 @@ import type {
   SessionProviderRoute,
   SessionProviderRouter,
 } from "./SessionProviderRouter.js";
-import { binarySessionStatus } from "./BinarySessionStatus.js";
+import {
+  binarySessionStatus,
+  restrictAdvertisedCapabilities,
+} from "./BinarySessionStatus.js";
 import {
   APPLE_DISPATCH_METADATA_ANALYSIS_PROFILE,
   NATIVE_MACOS_PROVIDER_IDENTITY,
@@ -378,6 +381,42 @@ describe("binary session provider capability projection", () => {
     expect(
       expandCanonicalCapabilities(otherCandidate?.capabilities ?? []),
     ).toEqual(expectedExpandedCandidateCapabilities[1]);
+  });
+
+  it("restricts the public report without erasing provider facts", async () => {
+    const status = await project(selectedCapabilities, [
+      candidate(providerA, selectedCapabilities),
+      candidate(providerB, otherCapabilities),
+    ]);
+    const restricted = projectedStatusSchema.parse(
+      restrictAdvertisedCapabilities(
+        structuredClone(status),
+        (operation) => operation !== "read_bytes",
+      ),
+    );
+
+    // The complete facts remain available for availability checks: a composed
+    // tool can depend on an operation the public report hides.
+    expect(
+      expandCanonicalCapabilities(status.capabilities).map(
+        ({ operation }) => operation,
+      ),
+    ).toContain("read_bytes");
+    // A scoped registration hides these tools from `tools/list`, so naming
+    // them in the public report would direct the agent to a failing call.
+    expect(
+      expandCanonicalCapabilities(restricted.capabilities).map(
+        ({ operation }) => operation,
+      ),
+    ).toEqual(["procedure_info", "xrefs"]);
+    expect(
+      expandCanonicalCapabilities(
+        restricted.analysis_provider_candidates[0]?.capabilities ?? [],
+      ).map(({ operation }) => operation),
+    ).toEqual(["procedure_info", "xrefs"]);
+    expect(restricted.analysis_provider_candidates[1]?.capabilities).toEqual(
+      [],
+    );
   });
 
   it("keeps empty route and candidate capability collections empty", async () => {

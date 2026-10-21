@@ -23,15 +23,6 @@ import {
 } from "./config/mcpInputSchemaProfile.js";
 import { RECORDED_CATALOG_DIGEST_PROFILES } from "./recordedCatalogDigests.js";
 
-const sortByName = (
-  contracts: readonly ToolContract[],
-): readonly ToolContract[] =>
-  [...contracts].sort((left, right) =>
-    compareUnicodeCodePoints(left.name, right.name),
-  );
-
-const sortedToolContracts = sortByName(TOOL_CONTRACTS);
-
 /**
  * Digested per-tool projection. Every contract field that changes what a
  * client receives belongs here, including `returns_target_content`: a server
@@ -79,7 +70,12 @@ const createPromptCatalog = (contracts: readonly PromptContract[]) =>
     }))
     .sort((left, right) => compareUnicodeCodePoints(left.name, right.name));
 
-const promptCatalog = createPromptCatalog(PROMPT_CONTRACTS);
+const sortByName = (
+  contracts: readonly ToolContract[],
+): readonly ToolContract[] =>
+  [...contracts].sort((left, right) =>
+    compareUnicodeCodePoints(left.name, right.name),
+  );
 
 const digest = (value: unknown): string => {
   const encoded = canonicalize(value);
@@ -153,10 +149,21 @@ export const createCatalogDigestProfiles = (
   return { full: outputProfiles(full), compact: outputProfiles(compact) };
 };
 
-export const createCatalogIdentity = (
-  compactPresentation: CompactInputSchemaPresentation | undefined = undefined,
-  outputSchemaProfile: McpOutputSchemaProfile = "full",
-) => {
+/** One catalog identity: advertised presentation, contract and prompt scope, output profile. */
+export interface CatalogIdentityOptions {
+  readonly compactPresentation?: CompactInputSchemaPresentation | undefined;
+  readonly contracts?: readonly ToolContract[] | undefined;
+  readonly outputSchemaProfile?: McpOutputSchemaProfile | undefined;
+  readonly promptContracts?: readonly PromptContract[] | undefined;
+}
+
+export const createCatalogIdentity = (options: CatalogIdentityOptions = {}) => {
+  const {
+    compactPresentation,
+    contracts = TOOL_CONTRACTS,
+    outputSchemaProfile = "full",
+    promptContracts = PROMPT_CONTRACTS,
+  } = options;
   const selectedPresentation =
     compactPresentation === undefined
       ? undefined
@@ -169,20 +176,24 @@ export const createCatalogIdentity = (
       : selectedPresentation.budgetBytes === COMPACT_INPUT_SCHEMA_BUDGET_BYTES
         ? "compact"
         : undefined;
+  // Recorded digests describe the complete default catalog only; a scoped tool
+  // or prompt set always computes from its own inputs.
   let catalogDigests: CatalogDigests | undefined =
-    inputProfile === undefined
+    inputProfile === undefined ||
+    contracts !== TOOL_CONTRACTS ||
+    promptContracts !== PROMPT_CONTRACTS
       ? undefined
       : RECORDED_CATALOG_DIGEST_PROFILES?.[inputProfile][outputSchemaProfile];
   return {
     counts: {
       cli_commands: CLI_COMMAND_NAMES.length,
-      mcp_tools: sortedToolContracts.length,
-      mcp_prompts: promptCatalog.length,
+      mcp_tools: contracts.length,
+      mcp_prompts: promptContracts.length,
     },
     get digests() {
       return (catalogDigests ??= createCatalogDigests(
-        TOOL_CONTRACTS,
-        PROMPT_CONTRACTS,
+        contracts,
+        promptContracts,
         selectedPresentation,
         outputSchemaProfile,
       ));

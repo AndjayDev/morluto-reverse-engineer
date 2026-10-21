@@ -395,8 +395,11 @@ const collectDoctorIdentity = async (
       },
       live_server: {
         state: "unknown",
+        // `binary_session` is advertised only when the saved scope includes
+        // `session`; naming it unconditionally sends a scoped registration to a
+        // disabled tool.
         remediation:
-          "Call binary_session in the active client to inspect the running server identity.",
+          "Call binary_session in the active client to inspect the running server identity; a registration whose saved scope omits the session family cannot report it, so include session through rea setup --tool-families and restart first.",
       },
       installations: {
         paths: installationPaths,

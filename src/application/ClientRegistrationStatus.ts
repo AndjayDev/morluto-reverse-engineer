@@ -260,6 +260,9 @@ export const readClientRegistrationInspections = async (
             }
           : client;
       const registration = parseRegistration(raw, effectiveClient);
+      // Derived tool-timeout facts exist only for Kimi/Codex registrations
+      // (mirroring setup); other clients must not be invalidated by a
+      // resolver the runtime never consults for them.
       const registrationEnvironment =
         client.name === "kimi" || client.name === "codex"
           ? await clientRegistrationEnvironmentDetailsWithBudget(
@@ -274,12 +277,18 @@ export const readClientRegistrationInspections = async (
         registrationEnvironment !== undefined &&
         !registrationEnvironment.ok
       ) {
+        const issues = registrationEnvironment.error.settings.map(
+          ({ setting, constraint }) => `${setting}: ${constraint}`,
+        );
         record({
           client: client.name,
           config_path: configPath,
           command: [],
           state: "invalid",
-          remediation: registrationEnvironment.error.message,
+          remediation:
+            issues.length > 0
+              ? `Fix the saved server environment and restart the client: ${issues.join("; ")}.`
+              : registrationEnvironment.error.message,
         });
         continue;
       }
