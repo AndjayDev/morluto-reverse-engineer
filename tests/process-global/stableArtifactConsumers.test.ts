@@ -1,4 +1,5 @@
 import { writeFile, type FileHandle } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -9,6 +10,9 @@ const fault = vi.hoisted(() => ({
   handles: [] as FileHandle[],
   onClose: undefined as (() => void) | undefined,
   readFailure: undefined as { cause: unknown } | undefined,
+  laterReadFailure: undefined as
+    | { position: number; cause: unknown }
+    | undefined,
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -27,6 +31,24 @@ vi.mock("node:fs/promises", async (importOriginal) => {
           throw failure.cause;
         };
       }
+      if (fault.laterReadFailure !== undefined) {
+        const failure = fault.laterReadFailure;
+        const read = handle.read.bind(handle) as (
+          buffer: Buffer,
+          offset: number,
+          length: number,
+          position: number,
+        ) => Promise<{ bytesRead: number }>;
+        const instrumented = handle as unknown as { read: typeof read };
+        let observedStart = false;
+        instrumented.read = async (buffer, offset, length, position) => {
+          if (observedStart && position > failure.position) throw failure.cause;
+          const result = await read(buffer, offset, length, position);
+          if (position === failure.position && result.bytesRead > 0)
+            observedStart = true;
+          return result;
+        };
+      }
       handle.close = async () => {
         fault.onClose?.();
         if (fault.blocked.has(handle))
@@ -41,6 +63,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 import { RustBinaryProvider } from "../../src/rust/RustBinaryProvider.js";
 import { RustBinaryService } from "../../src/application/rust/RustBinaryService.js";
 import { AnalysisError } from "../../src/domain/analysisErrorBase.js";
+import { parseEvidence } from "../../src/domain/evidence.js";
+import { projectAnalysisError } from "../../src/domain/analysisErrorProjection.js";
 import {
   AnalysisCancelledError,
   AnalysisArtifactChangedError,
@@ -55,11 +79,15 @@ import { ArtifactResourceScope } from "../../src/artifacts/ArtifactResourceScope
 import { ArtifactReaderFailure } from "../../src/artifacts/ArtifactReader.js";
 import { GoBinaryProvider } from "../../src/go/GoBinaryProvider.js";
 import { PeResourcesProvider } from "../../src/native/pe/PeResourcesProvider.js";
+import { Il2cppMetadataProvider } from "../../src/il2cpp/Il2cppMetadataProvider.js";
+import { ModelArtifactProvider } from "../../src/model/ModelArtifactProvider.js";
+import { ggufFixture } from "../fixtures/model/model.js";
 import { inspectPeResourcesInputSchema } from "../../src/domain/native/peResources.js";
 import { peResourceFixture } from "../../src/native/pe/PeResources.fixture.js";
 import { createServer } from "../../src/server/createServer.js";
 import { createTestBinarySession } from "../fixtures/binarySession.js";
 import { createRustImage } from "../fixtures/rust/image.js";
+import { createIl2cppMetadataFixture } from "../fixtures/il2cpp/metadata.js";
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 import { parseMcpToolError } from "../fixtures/mcpToolError.js";
 import { mcpTest } from "../support/mcp/mcpFixture.js";
@@ -71,13 +99,33 @@ beforeEach(() => {
   fault.handles = [];
   fault.onClose = undefined;
   fault.readFailure = undefined;
+  fault.laterReadFailure = undefined;
 });
 
 const staticProviders = [
   ["Rust", () => new RustBinaryProvider()],
   ["Go", () => new GoBinaryProvider()],
   ["PE", () => new PeResourcesProvider()],
+  ["IL2CPP metadata", () => new Il2cppMetadataProvider()],
 ] as const;
+
+const expectIl2cppSource = (
+  error: AnalysisError,
+  path: string,
+  bytes: Buffer,
+) => {
+  const source = parseEvidence(error.partialObservation);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  expect(source.operation).toBe("observe_il2cpp_metadata_source");
+  expect(source.subject).toMatchObject({
+    local_path: path,
+    digest: { sha256 },
+  });
+  expect(source.normalized_result).toEqual({
+    artifact: { path, sha256, bytes: bytes.length },
+    inventory_status: "not-returned-as-complete",
+  });
+};
 
 it.each(staticProviders)(
   "preserves the exact late-close cancellation cause through %s inspection",
@@ -86,6 +134,8 @@ it.each(staticProviders)(
     const provider = makeProvider();
     if (provider instanceof PeResourcesProvider)
       await writeFile(path, peResourceFixture().bytes);
+    if (provider instanceof Il2cppMetadataProvider)
+      await writeFile(path, createIl2cppMetadataFixture().bytes);
     const controller = new AbortController();
     const reason = new Error("cancel during confirmed descriptor close");
     fault.blockNew = false;
@@ -101,7 +151,53 @@ it.each(staticProviders)(
       if (result.ok) throw new Error("Expected late cancellation");
       expect(result.error).toBeInstanceOf(AnalysisCancelledError);
       expect(result.error.cause).toBe(reason);
+      if (provider instanceof Il2cppMetadataProvider)
+        expectIl2cppSource(
+          result.error,
+          path,
+          createIl2cppMetadataFixture().bytes,
+        );
       expect(fault.handles.every((handle) => handle.fd === -1)).toBe(true);
+    } finally {
+      fault.blocked.clear();
+      await provider.close();
+    }
+  },
+);
+
+it.each([false, true])(
+  "retains completed IL2CPP source facts through failed close (cancel: %s)",
+  async (cancel) => {
+    const path = await selectedImage();
+    const { bytes } = createIl2cppMetadataFixture();
+    await writeFile(path, bytes);
+    const provider = new Il2cppMetadataProvider();
+    const controller = new AbortController();
+    const reason = new Error("cancel during failed close");
+    if (cancel) fault.onClose = () => controller.abort(reason);
+    try {
+      const result = await provider.inspect(
+        { path },
+        { signal: controller.signal },
+      );
+      if (result.ok) throw new Error("Expected failed close");
+      if (cancel) {
+        expect(result.error.cleanupPrimary).toBeInstanceOf(
+          AnalysisCancelledError,
+        );
+        expect(result.error.cleanupPrimary?.cause).toBe(reason);
+      }
+      expect(result.error.cleanupIncomplete).toBe(true);
+      expectIl2cppSource(result.error, path, bytes);
+      expect(fault.handles).toHaveLength(1);
+      expect(fault.handles[0]?.fd).toBeGreaterThanOrEqual(0);
+      fault.blocked.clear();
+      await provider.close();
+      expect(result.error.cleanupIncomplete).toBe(false);
+      expect(fault.handles[0]?.fd).toBe(-1);
+      expect(
+        projectAnalysisError(result.error).details?.partial_observation,
+      ).toEqual(result.error.partialObservation);
     } finally {
       fault.blocked.clear();
       await provider.close();
@@ -150,6 +246,8 @@ it.each(
       if (result.ok) throw new Error("Expected primary read failure");
       expect(result.error).toBeInstanceOf(expected);
       expect(result.error.cause).toBe(primary);
+      if (provider instanceof Il2cppMetadataProvider)
+        expect(result.error.partialObservation).toBeUndefined();
       expect(fault.handles.every((handle) => handle.fd === -1)).toBe(true);
     } finally {
       await provider.close();
@@ -186,6 +284,8 @@ it.each(staticProviders)(
       const [original] = aggregate.errors;
       expect(original).toBeInstanceOf(AnalysisArtifactChangedError);
       expect((original as AnalysisArtifactChangedError).cause).toBe(primary);
+      if (provider instanceof Il2cppMetadataProvider)
+        expect(result.error.partialObservation).toBeUndefined();
       fault.blocked.clear();
       await provider.close();
       expect(result.error.cleanupIncomplete).toBe(false);
@@ -209,6 +309,148 @@ const selectedImage = async () => {
   fault.path = path;
   return path;
 };
+
+it.each([
+  "confirmed-close-cancel",
+  "failed-close",
+  "failed-close-cancel",
+] as const)(
+  "retains complete scoped model observations through %s and retries the exact file owner",
+  async (mode) => {
+    const path = await selectedImage();
+    await writeFile(path, ggufFixture().bytes);
+    const provider = new ModelArtifactProvider();
+    const controller = new AbortController();
+    const reason = new Error("model close cancellation");
+    fault.blockNew = mode !== "confirmed-close-cancel";
+    if (mode !== "failed-close") fault.onClose = () => controller.abort(reason);
+    try {
+      const result = await provider.inspect(
+        { path, hash: "header" },
+        { signal: controller.signal },
+      );
+      if (result.ok) throw new Error("Expected finalization failure");
+      const evidence = parseEvidence(result.error.partialObservation);
+      expect(evidence.operation).toBe("inspect_model_artifact");
+      expect(evidence.subject).toBeNull();
+      expect(evidence.normalized_result).toMatchObject({
+        artifact: { path, sha256: null, read_scope: "header" },
+        tensors: [{ name: "weight" }, { name: "quant" }],
+      });
+      if (mode === "confirmed-close-cancel") {
+        expect(result.error).toBeInstanceOf(AnalysisCancelledError);
+        expect(result.error.cause).toBe(reason);
+        expect(fault.handles[0]?.fd).toBe(-1);
+      } else {
+        expect(result.error.cleanupIncomplete).toBe(true);
+        if (mode === "failed-close-cancel")
+          expect(result.error.cleanupPrimary?.cause).toBe(reason);
+        expect(fault.handles[0]?.fd).toBeGreaterThanOrEqual(0);
+        fault.blocked.clear();
+        await provider.close();
+        expect(result.error.cleanupIncomplete).toBe(false);
+        expect(fault.handles[0]?.fd).toBe(-1);
+      }
+    } finally {
+      fault.onClose = undefined;
+      fault.blocked.clear();
+      await provider.close();
+    }
+  },
+);
+
+it("preserves a model permission failure when cancellation arrives during close", async () => {
+  const path = await selectedImage();
+  const provider = new ModelArtifactProvider();
+  const denied = Object.assign(new Error("model read denied"), {
+    code: "EACCES",
+  });
+  fault.readFailure = { cause: denied };
+  fault.blockNew = false;
+  const controller = new AbortController();
+  fault.onClose = () => controller.abort(new Error("later stop"));
+  try {
+    const result = await provider.inspect(
+      { path, hash: "header" },
+      { signal: controller.signal },
+    );
+    if (result.ok) throw new Error("Read failure disappeared");
+    expect(result.error).toBeInstanceOf(AnalysisAccessDeniedError);
+    expect(result.error.cause).toBe(denied);
+    expect(result.error.partialObservation).toBeUndefined();
+  } finally {
+    fault.onClose = undefined;
+    await provider.close();
+  }
+});
+
+it("retains earlier GGUF rows and physical failure while retrying failed descriptor cleanup", async () => {
+  const path = await selectedImage();
+  const seed = ggufFixture();
+  const count = 200_000;
+  const fixture = ggufFixture({
+    tensors: [],
+    metadata: [
+      { key: "general.name", type: 8, value: seed.text("First row") },
+      {
+        key: "custom.bools",
+        type: 9,
+        value: Buffer.concat([
+          seed.u32(7),
+          seed.u64(BigInt(count)),
+          Buffer.alloc(count),
+        ]),
+      },
+    ],
+  });
+  await writeFile(path, fixture.bytes);
+  const arrayStart =
+    24 +
+    8 +
+    Buffer.byteLength("general.name") +
+    4 +
+    8 +
+    Buffer.byteLength("First row") +
+    8 +
+    Buffer.byteLength("custom.bools") +
+    4 +
+    4 +
+    8;
+  const denied = Object.assign(new Error("controlled later GGUF read denial"), {
+    code: "EACCES",
+  });
+  fault.laterReadFailure = { position: arrayStart, cause: denied };
+  const provider = new ModelArtifactProvider();
+  try {
+    const result = await provider.inspect({ path, hash: "header" });
+    if (result.ok) throw new Error("Expected physical read failure");
+    expect(result.error.cleanupPrimary).toBeInstanceOf(
+      AnalysisAccessDeniedError,
+    );
+    expect(result.error.cleanupPrimary?.cause).toBe(denied);
+    expect(result.error.cleanupIncomplete).toBe(true);
+    const partial = parseEvidence(result.error.partialObservation);
+    expect(partial.normalized_result).toMatchObject({
+      kind: "model-artifact-partial",
+      metadata: [{ index: 0, key: "general.name", value: "First row" }],
+      artifact: {
+        path,
+        header_sha256: null,
+        sha256: null,
+        file_identity: "unverified",
+      },
+    });
+    expect(fault.handles).toHaveLength(1);
+    expect(fault.handles[0]?.fd).toBeGreaterThanOrEqual(0);
+    fault.blocked.clear();
+    await provider.close();
+    expect(result.error.cleanupIncomplete).toBe(false);
+    expect(parseEvidence(result.error.partialObservation)).toEqual(partial);
+  } finally {
+    fault.blocked.clear();
+    await provider.close();
+  }
+});
 
 mcpTest(
   "retains Rust descriptor cleanup and recovers in the same MCP connection",

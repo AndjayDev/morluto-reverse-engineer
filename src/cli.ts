@@ -1,10 +1,14 @@
+import { registerNativeFunctionMatchingCommands } from "./cli/nativeFunctionMatchingCommands.js";
 import { registerCaptureCommands } from "./cli/captureCommands.js";
 import { registerSignalCommands } from "./cli/signalCommands.js";
 import { registerWasmCommands } from "./cli/wasmCommands.js";
 import { snapshotEnvironment } from "./process/snapshotEnvironment.js";
 import { createDirectAnalysis } from "./composition/directAnalysis.js";
 import { registerEvmCommands } from "./cli/evmCommands.js";
+import { registerDesktopApplicationCommands } from "./cli/desktopApplicationCommands.js";
 import { registerGoCommands } from "./cli/goCommands.js";
+import { registerModelCommands } from "./cli/modelCommands.js";
+import { registerIl2cppCommands } from "./cli/il2cppCommands.js";
 import { registerRustCommands } from "./cli/rustCommands.js";
 import { registerSqliteCommands } from "./cli/sqliteCommands.js";
 import { registerAnalysisViewCommands } from "./cli/analysisViewCommands.js";
@@ -31,6 +35,7 @@ import { registerFlutterCommands } from "./cli/flutterCommands.js";
 import { registerJebCommands } from "./cli/jebCommands.js";
 import { registerAdbCommands } from "./cli/adbCommands.js";
 import { registerEvidenceCommands } from "./cliEvidenceCommands.js";
+import { registerEnvironmentCommands } from "./cli/environmentCommands.js";
 import { registerProcessCommands } from "./cli/processCommands.js";
 import { registerBrowserCommands } from "./cli/browserCommands.js";
 import { registerWebScriptCommands } from "./cli/webScriptCommands.js";
@@ -53,7 +58,10 @@ import {
 import { registerReverseEngineeringCommands } from "./cli/reverseEngineeringCommands.js";
 import { registerCutterCommands } from "./cli/cutterCommands.js";
 
-/** Describe CLI settings that are invalid before any command runs, as MCP does. */
+/**
+ * Describe CLI settings that are invalid before any command runs, as MCP does.
+ * Keep this aligned with PROCESS_START_CONFIGURATION_SETTINGS.
+ */
 export const cliConfigurationError = (
   selectedEnvironment: Readonly<Record<string, string | undefined>>,
 ): string | undefined => {
@@ -77,7 +85,8 @@ export const createCli = (
 ): CliInstance => {
   const environment = snapshotEnvironment(selectedEnvironment);
   const analysis = createDirectAnalysis(environment);
-  // The executable reports an invalid level through cliConfigurationError.
+  // The executable reports an invalid level before every command except doctor.
+  // Doctor keeps going so its readiness report can name REA_LOG_LEVEL.
   const level =
     environment.REA_LOG_LEVEL === undefined
       ? undefined
@@ -115,7 +124,10 @@ export const createCli = (
   registerCaptureCommands(cli, logger, environment);
   registerSignalCommands(cli, logger, environment);
   registerEvmCommands(cli, logger, environment);
+  registerDesktopApplicationCommands(cli, logger);
   registerGoCommands(cli, logger);
+  registerIl2cppCommands(cli, logger);
+  registerModelCommands(cli, logger);
   registerRustCommands(cli, logger);
   registerSqliteCommands(cli, logger, environment);
   registerArtifactCommands(cli, logger, analysis.runProviderAnalysis);
@@ -129,8 +141,10 @@ export const createCli = (
   registerFirmwareCommands(cli, logger, environment);
   registerBinaryDiagnosticsCommands(cli, logger, environment);
   registerAnalysisViewCommands(cli, logger);
+  registerNativeFunctionMatchingCommands(cli, logger);
   registerFridaCommands(cli, logger, fridaInstrumentation);
   registerEvidenceCommands(cli, logger);
+  registerEnvironmentCommands(cli, logger, environment);
   registerProcessCommands(cli, logger, environment);
   registerBrowserCommands(cli, logger);
   registerWebScriptCommands(cli, logger);

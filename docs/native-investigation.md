@@ -216,6 +216,25 @@ sites remain distinct. A static route does not establish runtime reachability.
 Swift/closure dispatch requires resolved static references; unavailable ABI
 forms remain unknown.
 
+Incomplete reference kinds do not discard known typed calls or partial
+provider call references. A `provider_call` with `observed` resolution retains
+the provider-reported call site and endpoint without claiming generic direct,
+indirect or Objective-C dispatch semantics. Its `call_reference` evidence
+preserves the original endpoints, classification, raw provider type and
+provenance, even when the target node is a containing procedure. Hopper's
+`none`, `unknown`, `direct` and `objective_c` labels stay provider-scoped;
+unknown numeric types remain available in the raw type field. Target-only
+callee fallback uses `provider_call` with `inferred` resolution.
+
+Callee fallback adds inferred targets while each retained route keeps its
+original provider and call site. If enumeration fails, known routes remain alongside an unresolved
+failure; cancellation still terminates the request. A node-limit omission keeps
+the route's known relation while marking its target unresolved. Distinct call
+sites to the same omitted target retain separate evidence.
+Reports sharing a call site and containing target procedure retain all their
+original endpoint evidence on the shared graph edge. Different reported
+relations retain separate edges, independent of enumeration order.
+
 Session discovery describes two automatic source routes for this trace:
 `authored_ui_dispatch` needs Interface Builder decoding and dispatch metadata;
 `native_seed_call_trace` needs native address resolution, dispatch metadata and
@@ -406,10 +425,25 @@ complete observation.
   vtable descriptors. Records include exact virtual addresses/file offsets and
   artifact evidence. Vtable indexes are metadata word offsets; witness indexes
   start after the conformance header. Names unavailable in metadata remain null.
+  The `swift_class_vtable_descriptors` coverage counters count examined vtable
+  slots and successfully decoded slots, rather than type-section entries.
+  The `objc_class_method_ivar_metadata` counters count admitted class and
+  metaclass objects and successfully decoded objects.
   Pointers are decoded through the image's fixups:
   - `LC_DYLD_CHAINED_FIXUPS` rebases and binds, including the authenticated
     arm64e formats;
-  - legacy `LC_DYLD_INFO` bind opcodes.
+  - legacy `LC_DYLD_INFO` rebase and bind opcodes.
+
+  A Swift conformance whose type or protocol reference is an external bind
+  keeps its name as `null` and carries the raw dyld identity in
+  `type_binding` or `protocol_binding`; that record and its facet coverage are
+  partial. Consumers of this output must handle nullable conformance names
+  and use the typed binding fields instead of substituting a symbol as a
+  display name. Indirect relative-pointer records also retain their binding
+  identity. A decoded rebase to virtual address zero remains an address; only
+  an unfixed zero in a nullable ABI field is treated as null. Incomplete or
+  conflicting fixup streams keep affected pointers unresolved; coverage reports
+  parsing and resource limits while retaining validated prefix facts.
 
   So an external superclass resolves from its `_OBJC_CLASS_$_` bind (for
   example `NSObject`). The `pointer_fixups` coverage facet names the mechanism.
@@ -446,6 +480,21 @@ complete observation.
   workflow tries direct metadata first and uses the symbol fallback only when
   that operation is unavailable; runtime failures remain failures rather than
   being replaced by symbol-only results.
+
+`get_objc_classes` keeps names from the provider inventory. It coalesces rows
+only when their exact selected-image pointer slots decode to the same class
+import, including its binding stream, raw library ordinal, resolved library, weak status, and addend. A literal filter is
+applied to the original names before that join; if the filter selects only an
+alias, the output keeps that exact row. `identity_coverage` distinguishes a
+complete selected-inventory scan from partial, unsupported, and unknown cases.
+Recognized Mach-O formats outside the native metadata reader's support retain
+the provider's class labels with unknown import identity; malformed headers and
+read failures remain errors.
+The join also requires matching whole-artifact digests and matching provider-
+owned selected-image facts: container, byte range, full raw CPU type/subtype,
+and FAT table digest when present. A missing or overridden loader selection
+remains unknown; the result describes agreement on the selected artifact image,
+not an atomic observation of a running process or whole-program class coverage.
 
 ## Native desktop observation
 
