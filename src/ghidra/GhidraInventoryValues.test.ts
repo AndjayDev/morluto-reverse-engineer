@@ -138,13 +138,43 @@ describe("containing-procedure complete body evidence", () => {
     found: true,
     procedure: identity(),
   });
+  it("preserves containment provenance and requires the observation envelope", () => {
+    const limitations = ["Registered handler remains outside the known body"];
+    const value = {
+      query_address: "0x1010",
+      found: false,
+      procedure: null,
+      reason: "not_in_procedure",
+    };
+    expect(
+      parseGhidraInventoryResult("resolve_containing_procedure", {
+        value,
+        limitations,
+      }),
+    ).toEqual({
+      ok: true,
+      value: { value, limitations },
+    });
+    expect(
+      parseGhidraInventoryResult("resolve_containing_procedure", value).ok,
+    ).toBe(false);
+    expect(
+      parseGhidraInventoryResult("resolve_containing_procedure", {
+        value,
+        limitations: [3],
+      }).ok,
+    ).toBe(false);
+  });
   it("rejects a missing body rather than treating a legacy identity as complete", () => {
     const { body: omitted, ...legacy } = identity();
     expect(omitted.total_bytes).toBe(5);
     expect(
       parseGhidraInventoryResult("resolve_containing_procedure", {
-        ...found(),
-        procedure: legacy,
+        value: {
+          ...found(),
+          procedure: legacy,
+        },
+        limitations: ["SEH static provenance"],
       }).ok,
     ).toBe(false);
   });
@@ -172,8 +202,11 @@ describe("containing-procedure complete body evidence", () => {
     const procedure = identity();
     expect(
       parseGhidraInventoryResult("resolve_containing_procedure", {
-        ...found(),
-        procedure: { ...procedure, body: { ...procedure.body, ...change } },
+        value: {
+          ...found(),
+          procedure: { ...procedure, body: { ...procedure.body, ...change } },
+        },
+        limitations: ["SEH static provenance"],
       }).ok,
     ).toBe(false);
   });
@@ -189,8 +222,11 @@ describe("containing-procedure complete body evidence", () => {
     };
     expect(
       parseGhidraInventoryResult("resolve_containing_procedure", {
-        ...found(),
-        procedure: { ...procedure, body },
+        value: {
+          ...found(),
+          procedure: { ...procedure, body },
+        },
+        limitations: ["SEH static provenance"],
       }).ok,
     ).toBe(true);
   });
@@ -198,8 +234,11 @@ describe("containing-procedure complete body evidence", () => {
   it("does not accept a found query that lies in the gap between body ranges", () => {
     expect(
       parseGhidraInventoryResult("resolve_containing_procedure", {
-        ...found(),
-        query_address: "0x1010",
+        value: {
+          ...found(),
+          query_address: "0x1010",
+        },
+        limitations: ["SEH static provenance"],
       }).ok,
     ).toBe(false);
   });

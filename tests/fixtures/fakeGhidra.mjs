@@ -421,7 +421,7 @@ const inventoryResultFor = (method, params) => {
     case "procedure_address":
       return "0x1000";
     case "resolve_containing_procedure":
-      return containingProcedureResult();
+      return { value: containingProcedureResult(), limitations: [] };
     case "search_procedures":
       return [procedureSearchItem()];
     case "search_strings":

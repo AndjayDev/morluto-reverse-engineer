@@ -346,6 +346,7 @@ const resultSchemas = {
 export interface ParsedGhidraInventoryResult<Value = JsonValue> {
   readonly value: Value;
   readonly rawResult?: JsonValue;
+  readonly limitations?: readonly string[];
 }
 
 /** Validate exact Java-bridge output and own its Evidence representation. */
@@ -371,6 +372,20 @@ export function parseGhidraInventoryResult(
     const parsed = resultSchemas.inspect_native_load_image.safeParse(value);
     return parsed.success
       ? ok({ value: parsed.data, rawResult: value })
+      : err(inventoryOutputFailure(operation, parsed.error));
+  }
+  if (operation === "resolve_containing_procedure") {
+    const parsed = z
+      .strictObject({
+        value: containingProcedure,
+        limitations: z.array(z.string()),
+      })
+      .safeParse(value);
+    return parsed.success
+      ? ok({
+          value: jsonValueSchema.parse(parsed.data.value),
+          limitations: parsed.data.limitations,
+        })
       : err(inventoryOutputFailure(operation, parsed.error));
   }
   const parsed = resultSchemas[operation].safeParse(value);
