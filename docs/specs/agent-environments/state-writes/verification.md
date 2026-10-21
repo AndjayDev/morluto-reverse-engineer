@@ -244,3 +244,12 @@ forgets the collection spellings of the state it replaced. Both new tests fail
 on the previous head. The verdicts over the 50 captures are unchanged plan by
 plan, the in-process smoke applies all 31 served write tools, and the gates
 passed again.
+
+An eighth round settled three more. A later write erases the fields of an
+earlier effect it overwrites, so two writes that together overwrite all of an
+update's changes leave it nothing to be confirmed by. A recorded outcome erases
+what earlier writes changed on its entity. A load keeps the Evidence's own
+collection spellings, so a create in a collection the loaded state does not
+hold keeps its recorded spelling. Each new test fails on the previous head. The
+verdicts over the 50 captures are unchanged plan by plan, the smoke applies all
+31 served write tools, and the gates passed again.

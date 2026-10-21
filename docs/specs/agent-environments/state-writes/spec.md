@@ -193,11 +193,12 @@ refuses to answer with.
 **Attribution.**
 
 - A check exercises the write tools that changed its entity or collection
-  since the previous check of it, less those a later write replaced: a create
-  or delete replaces an entity's earlier writes, an update the earlier updates
-  whose every changed field, sent or derived, it overwrites (an increment adds
-  to its field rather than overwriting it), and a write left with no changed
-  entity in a collection no longer counts there. A pass confirms them and a mismatch
+  since the previous check of it, less those whose effect later writes erased.
+  An update's effect is the fields it sent or changed, derived ones included.
+  A later update overwrites the fields it sets (an increment adds to its field
+  instead), a recorded outcome every field, and a create or delete the whole
+  entity. A write with nothing left on an entity no longer counts there, nor in
+  a collection where no entity it changed keeps any of its effect. A pass confirms them and a mismatch
   contradicts them.
 - A mismatch after an unmodelled write that followed those writes is checked
   only on the members they sent: such a write may explain the rest.
@@ -267,8 +268,9 @@ recording instead.
 
 A create in a collection held under more than one spelling (`acme1` and
 `%61cme1`) goes to the one the call spells verbatim, as item calls choose their
-entity; a collection keeps its spelling after its last entity is deleted, until
-a reset or load starts from the spellings of the state it installs. `data/add` refuses a document that `data/get` would write back past the
+entity; a collection keeps its spelling after its last entity is deleted. A
+reset or load knows the spellings of the Evidence's state and of the state it
+installs, never those of a state it replaced. `data/add` refuses a document that `data/get` would write back past the
 32 MiB intake limit once it adds the members a document may omit, such as
 `types` and the state Evidence id.
 

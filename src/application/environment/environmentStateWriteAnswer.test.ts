@@ -550,6 +550,23 @@ describe("values the state started with", () => {
     expect(create("my%20org1", "Epsilon")).toBe("/api/orgs/my%20org1/books");
   });
 
+  it("creates in the Evidence's spelling of a collection a loaded state does not hold", () => {
+    const { books, create } = twoOrgs("my%20org1", "my org1");
+    const { rea_state: held } = books.store.snapshot();
+    expect(
+      books.store.replace({
+        rea_state: {
+          version: held.version,
+          entities: held.entities.filter(
+            (entity) => !entity.collection.includes("%20"),
+          ),
+          documents: held.documents,
+        },
+      }).ok,
+    ).toBe(true);
+    expect(create("my%20org1", "Epsilon")).toBe("/api/orgs/my%20org1/books");
+  });
+
   it("forgets the spellings of a loaded state once reset", () => {
     const { books, create } = twoOrgs("%61cme1", "acme1");
     const { rea_state: held } = books.store.snapshot();

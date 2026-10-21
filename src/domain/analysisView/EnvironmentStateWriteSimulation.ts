@@ -231,6 +231,8 @@ export class EnvironmentStateWriteSimulation {
       );
     if (result.kind === "applied" && result.entity !== undefined)
       this.#effects.supersede(this.#touched, write.tool, result);
+    if (result.kind === "observed")
+      this.#effects.observed(this.#touched, result.targets);
     for (const target of result.targets) {
       // A recorded outcome replaces the entity's values, not its collection's membership.
       if (result.kind === "observed") {

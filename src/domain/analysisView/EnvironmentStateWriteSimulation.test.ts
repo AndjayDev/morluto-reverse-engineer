@@ -406,12 +406,15 @@ describe("reads the served answer no longer matches", () => {
     ];
     expect(gated(rows, "post_books")).toMatchObject({ served: false });
   });
+});
+
+describe("updates whose effect later writes erase", () => {
+  const versioned = (entry: Book, version: number): Book => ({
+    ...entry,
+    version,
+  });
 
   it("keeps an update confirmed when a later one rewrites only part of what it changed", () => {
-    const versioned = (entry: Book, version: number): Book => ({
-      ...entry,
-      version,
-    });
     const again = versioned(renamedBook(FIRST_BOOK, "Again Book", 4), 2);
     const rows: TimedCaptureRow[] = [
       [
@@ -435,6 +438,92 @@ describe("reads the served answer no longer matches", () => {
     expect(gated(rows, "patch_books_by_id")).toMatchObject({
       served: true,
       checked_record_ordinals: [5],
+    });
+  });
+
+  it("confirms no update whose changes later writes overwrote between them", () => {
+    const renamed = versioned(renamedBook(FIRST_BOOK, "Again Book", 4), 2);
+    const final = versioned(renamedBook(FIRST_BOOK, "Again Book", 5), 9);
+    const rows: TimedCaptureRow[] = [
+      [
+        "GET",
+        "/api/books",
+        [versioned(FIRST_BOOK, 1), versioned(SECOND_BOOK, 1)],
+      ],
+      ["GET", "/api/books/1", versioned(FIRST_BOOK, 1)],
+      ["GET", "/api/books/2", versioned(SECOND_BOOK, 1)],
+      [
+        "PATCH",
+        "/api/books/1",
+        versioned(RENAMED, 2),
+        200,
+        { name: "Renamed Book" },
+      ],
+      ["PUT", "/api/books/1", renamed, 200, { name: "Again Book" }],
+      ["POST", "/api/books/1", final, 200, { version: 9 }],
+      ["GET", "/api/books/1", final],
+    ];
+    // The PUT overwrote the name, slug and clock, the POST the version: nothing of the PATCH is left to read.
+    expect(gated(rows, "patch_books_by_id")).toMatchObject({
+      served: false,
+      checked_record_ordinals: [],
+    });
+    expect(gated(rows, "put_books_by_id")).toMatchObject({
+      checked_record_ordinals: [6],
+    });
+  });
+
+  it("confirms no update whose changes a recorded outcome replaced", () => {
+    const described = (
+      entry: Book,
+      name: string,
+      at: number,
+      text: string,
+    ): Book => ({
+      ...renamedBook(entry, name, at),
+      description: text,
+    });
+    const final = described(FIRST_BOOK, "Other Book", 7, "z");
+    const rows: TimedCaptureRow[] = [
+      [
+        "GET",
+        "/api/books",
+        [
+          { ...FIRST_BOOK, description: "d" },
+          { ...SECOND_BOOK, description: "d" },
+        ],
+      ],
+      ["GET", "/api/books/1", { ...FIRST_BOOK, description: "d" }],
+      ["GET", "/api/books/2", { ...SECOND_BOOK, description: "d" }],
+      [
+        "PUT",
+        "/api/books/2",
+        described(SECOND_BOOK, "Second Book", 3, "x"),
+        200,
+        { description: "x" },
+      ],
+      [
+        "PATCH",
+        "/api/books/1",
+        described(FIRST_BOOK, "Renamed Book", 4, "d"),
+        200,
+        { name: "Renamed Book" },
+      ],
+      // Without a body the PUT is not modelled: its recorded outcome becomes the book's values.
+      ["PUT", "/api/books/1", described(FIRST_BOOK, "Other Book", 5, "d")],
+      [
+        "PATCH",
+        "/api/books/1",
+        described(FIRST_BOOK, "Other Book", 6, "y"),
+        200,
+        { description: "y" },
+      ],
+      ["PUT", "/api/books/1", final, 200, { description: "z" }],
+      ["GET", "/api/books/1", final],
+    ];
+    expect(gated(rows, "patch_books_by_id")).toMatchObject({
+      served: false,
+      checked_record_ordinals: [],
     });
   });
 });

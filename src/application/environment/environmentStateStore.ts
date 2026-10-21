@@ -65,6 +65,8 @@ export class EnvironmentStateStore {
   #started: readonly StateEntity[] = [];
   /** Every collection spelling a type's entities have been held under since the last reset or load, kept when a collection empties. */
   readonly #knownCollections = new Map<string, string[]>();
+  /** The collections of the Evidence's own state, which stay known after any load. */
+  #evidenceCollections: ReadonlyMap<string, readonly string[]> = new Map();
 
   constructor(readonly state: EnvironmentState) {
     this.#types = new Map(
@@ -80,6 +82,7 @@ export class EnvironmentStateStore {
   /** Restore the initial state the Evidence holds; the clock and counter start again. */
   reset(): void {
     this.#install(this.state, this.#initialBytes);
+    this.#evidenceCollections = this.#typeCollections;
     this.#restart();
   }
 
@@ -133,10 +136,19 @@ export class EnvironmentStateStore {
     this.#writes = 0;
     this.#sequences.clear();
     this.#started = this.#content.entities;
-    // A reset or load starts as a fresh store would, without the spellings of the state it replaced.
+    // A reset or load knows the Evidence's spellings and its own, never those of a state it replaced.
     this.#knownCollections.clear();
-    for (const [type, named] of this.#typeCollections)
-      this.#knownCollections.set(type, [...named]);
+    this.#remember(this.#evidenceCollections);
+    this.#remember(this.#typeCollections);
+  }
+
+  #remember(named: ReadonlyMap<string, readonly string[]>): void {
+    for (const [type, collections] of named) {
+      const known = this.#knownCollections.get(type) ?? [];
+      for (const collection of collections)
+        if (!known.includes(collection)) known.push(collection);
+      this.#knownCollections.set(type, known);
+    }
   }
 
   /** The entities of a type the state held when it was last reset or loaded. */
@@ -343,12 +355,7 @@ export class EnvironmentStateStore {
     this.#entities = entities;
     this.#collections = collections;
     this.#typeCollections = typeCollections;
-    for (const [type, named] of typeCollections) {
-      const known = this.#knownCollections.get(type) ?? [];
-      for (const collection of named)
-        if (!known.includes(collection)) known.push(collection);
-      this.#knownCollections.set(type, known);
-    }
+    this.#remember(typeCollections);
     this.#documents = new Map(
       content.documents.map((document) => [document.tool, document]),
     );
