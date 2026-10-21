@@ -24,6 +24,11 @@ import {
   sameGhidraLanguageOverride,
 } from "./GhidraAnalysisProfile.js";
 import { ghidraPinnedMipsLanguage } from "./GhidraMipsProfile.js";
+import {
+  ghidraPdbCommitmentSchema,
+  ghidraPdbCompanionFailure,
+  ghidraPdbCompanionLimitations,
+} from "./GhidraPdbCompanion.js";
 import type { AnalysisProfileCommitment } from "../domain/analysisProfile.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import {
@@ -211,6 +216,22 @@ export const createGhidraProviderClient = (input: {
       }),
     );
   const seeds = seedProfile.data;
+  const pdbProfile = ghidraPdbCommitmentSchema
+    .optional()
+    .safeParse(committedProfile.parameters.pdb_companion);
+  if (
+    !pdbProfile.success ||
+    config.ghidraPdbFile !== pdbProfile.data?.configured_path
+  )
+    return unavailableClient(
+      new ProviderAdapterError("ghidra", "open_binary", {
+        diagnostics: {
+          reason:
+            "Resolve REA_GHIDRA_PDB_FILE into an analysis profile before opening the session.",
+        },
+      }),
+    );
+  const pdbCompanion = pdbProfile.data;
   const parameterLanguage = ghidraProfileLanguageOverride(
     committedProfile.parameters,
   );
@@ -291,6 +312,7 @@ export const createGhidraProviderClient = (input: {
   // Replaced by the reported outcome once the session handshake is checked.
   const seedLimitations: string[] = [...ghidraSeedLimitations(seeds)];
   const pdbLimitations: string[] = [];
+  const pdbCompanionLimitations = ghidraPdbCompanionLimitations(pdbCompanion);
   // Replaced by the reported storage outcome once the handshake is checked.
   const softFloatLimitations: string[] = [
     ...ghidraMipsSoftFloatLimitations(softFloat),
@@ -380,6 +402,7 @@ export const createGhidraProviderClient = (input: {
         ? {}
         : { disabledAnalyzers: config.ghidraDisabledAnalyzers }),
       ...(seeds === undefined ? {} : { analysisSeeds: seeds }),
+      ...(pdbCompanion === undefined ? {} : { pdbCompanion }),
       platform: installation.platform,
       ...(extensions.length === 0 ? {} : { analysisExtensions: extensions }),
     }),
@@ -448,6 +471,12 @@ export const createGhidraProviderClient = (input: {
         operation,
       ) ??
       ghidraSeedFailure(seeds, info.analysis_seeds, operation) ??
+      ghidraPdbCompanionFailure(
+        pdbCompanion,
+        info.pdb_companion,
+        info.pdb?.loaded,
+        operation,
+      ) ??
       (softFloatReason === undefined
         ? undefined
         : new ProviderAdapterError("ghidra", operation, {
@@ -488,6 +517,7 @@ export const createGhidraProviderClient = (input: {
     ...softFloatLimitations,
     ...ghidraExtensionLimitations(extensions),
     ...seedLimitations,
+    ...pdbCompanionLimitations,
     ...pdbLimitations,
     ...(releaseLimitation === undefined ? [] : [releaseLimitation]),
   ];
