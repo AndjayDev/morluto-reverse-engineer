@@ -788,31 +788,27 @@ export class HopperClient {
     deadline: ProviderStartupDeadline,
   ): Promise<Result<undefined, HopperError>> {
     while (deadline.remainingMs() > 0) {
-      if (deadline.signal.aborted)
-        return err(await this.#startupInterruption(deadline));
+      const observedExit = this.#observedLauncherExit();
+      // A launcher exit the owned process already holds is a physical startup
+      // failure; a cancellation that arrives afterwards must not replace it.
+      if (deadline.signal.aborted && observedExit === undefined)
+        return err(await this.#interruptionFailure(deadline));
       if (this.#closing) return err(new HopperProcessError(null));
-      if (
-        this.#launcherExitCode !== undefined &&
-        this.#resources.launch !== undefined &&
-        (this.#resources.launch.providerLifetime === "launcher-process" ||
-          this.#launcherExitCode !== 0)
-      ) {
-        const failure = await this.#launcherStartupFailure(
-          this.#resources.launch.providerLifetime === "launcher-process",
-          this.#launcherExitCode,
-          deadline,
+      if (observedExit !== undefined)
+        return err(
+          await this.#launcherStartupFailure(
+            observedExit.ownsProviderLifetime,
+            observedExit.exitCode,
+            deadline,
+          ),
         );
-        return deadline.interruption === "cancelled"
-          ? err(await this.#startupInterruption(deadline))
-          : err(failure);
-      }
       try {
         await access(socketPath);
       } catch (cause: unknown) {
         // best-effort cleanup: socket polling; absence means keep waiting.
         void cause;
         if ((await deadline.wait(50)) === "aborted")
-          return err(await this.#startupInterruption(deadline));
+          return err(await this.#interruptionFailure(deadline));
         continue;
       }
       const attempt = await connectHopperSocketOnce(
@@ -825,9 +821,45 @@ export class HopperClient {
         return ok(undefined);
       }
       if ((await deadline.wait(50)) === "aborted")
-        return err(await this.#startupInterruption(deadline));
+        return err(await this.#interruptionFailure(deadline));
     }
-    return err(await this.#startupInterruption(deadline));
+    return err(await this.#interruptionFailure(deadline));
+  }
+
+  /** A launcher exit the owned process already holds, when it is a failure. */
+  #observedLauncherExit():
+    | {
+        readonly exitCode: number | null;
+        readonly ownsProviderLifetime: boolean;
+      }
+    | undefined {
+    const launch = this.#resources.launch;
+    if (launch === undefined) return undefined;
+    // The exit event may not have been recorded yet, so the child's own exit
+    // state is consulted as well. A signalled child has no exit code.
+    const exited =
+      launch.process.exitCode !== null || launch.process.signalCode !== null;
+    const exitCode =
+      this.#launcherExitCode ?? (exited ? launch.process.exitCode : undefined);
+    if (exitCode === undefined) return undefined;
+    const ownsProviderLifetime = launch.providerLifetime === "launcher-process";
+    return ownsProviderLifetime || exitCode === null || exitCode !== 0
+      ? { exitCode, ownsProviderLifetime }
+      : undefined;
+  }
+
+  /** Project an interruption, keeping an exit the owner already observed. */
+  async #interruptionFailure(
+    deadline: ProviderStartupDeadline,
+  ): Promise<HopperError> {
+    const observed = this.#observedLauncherExit();
+    return observed === undefined
+      ? this.#startupInterruption(deadline)
+      : this.#launcherStartupFailure(
+          observed.ownsProviderLifetime,
+          observed.exitCode,
+          deadline,
+        );
   }
 
   async #startupInterruption(
