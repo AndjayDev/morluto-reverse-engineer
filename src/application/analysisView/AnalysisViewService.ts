@@ -328,6 +328,14 @@ const createAnalysisViewEvidence = (
             ? {}
             : { architecture: parent.subject.architecture }),
         };
+  // Native facets and the analyze_function summary describe one function, so
+  // its address and relationship coverage belong to both envelopes.
+  const functionView =
+    result.kind === "native" ||
+    (result.kind === "summary" &&
+      result.parent_operation === "analyze_function")
+      ? result
+      : undefined;
   return createEvidence(target, ANALYSIS_VIEW_PROVIDER, {
     predicateType: "rea.analysis-view",
     operation: INSPECT_ANALYSIS_VIEW_OPERATION,
@@ -350,20 +358,22 @@ const createAnalysisViewEvidence = (
     limitations: result.limitations,
     // Function facets and the function summary both report caller/callee facts,
     // so partial or unknown discovery stays with them instead of reading as complete.
-    ...((result.kind === "native" ||
-      (result.kind === "summary" &&
-        result.parent_operation === "analyze_function")) &&
-    parent.relationship_coverage !== null
+    ...(functionView !== undefined && parent.relationship_coverage !== null
       ? { relationshipCoverage: parent.relationship_coverage }
       : {}),
     locations: [
       ...(result.artifact != null && result.artifact.path.length > 0
         ? [{ kind: "artifact-path" as const, path: result.artifact.path }]
         : []),
-      ...(result.kind === "native" &&
-      result.procedure_address !== null &&
-      result.procedure_address.length > 0
-        ? [{ kind: "address" as const, address: result.procedure_address }]
+      ...(functionView !== undefined &&
+      functionView.procedure_address !== null &&
+      functionView.procedure_address.length > 0
+        ? [
+            {
+              kind: "address" as const,
+              address: functionView.procedure_address,
+            },
+          ]
         : []),
     ],
     evidenceLinks: [parent.evidence_id],

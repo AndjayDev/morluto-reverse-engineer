@@ -120,6 +120,19 @@ const unavailableFacetUnknowns = (dossier: FunctionDossier): string[] => {
   );
 };
 
+/** Optional dossier records; the native facet path reports them "not recorded" when omitted. */
+const optionalFacets = [
+  "unresolved_calls",
+  "swift_string_literals",
+  "swift_string_literal_omissions",
+] as const;
+
+/** Omitted optional records are unknown, not empty, so the summary names them. */
+const unrecordedFacetUnknowns = (dossier: FunctionDossier): string[] =>
+  optionalFacets.flatMap((facet) =>
+    dossier[facet] === undefined ? [`${facet} not recorded`] : [],
+  );
+
 /** Compact dossier summary: identity, pseudocode size, facet counts and value-flow availability. */
 const summarizeDossier = (dossier: FunctionDossier) => {
   const sourceFlow = dossier.native_value_flow;
@@ -127,6 +140,9 @@ const summarizeDossier = (dossier: FunctionDossier) => {
   // A count is unknown, not zero, when the provider declared its facet unavailable.
   const count = (facet: string, rows: readonly unknown[]): number | null =>
     facetAvailability(dossier, facet)?.available === false ? null : rows.length;
+  // An omitted optional record is unknown, not zero.
+  const recorded = (rows: readonly unknown[] | undefined): number | null =>
+    rows === undefined ? null : rows.length;
   return {
     procedure: {
       name: dossier.procedure.name,
@@ -157,12 +173,16 @@ const summarizeDossier = (dossier: FunctionDossier) => {
         "outgoing_references",
         dossier.outgoing_references,
       ),
-      unresolved_calls: (dossier.unresolved_calls ?? []).length,
+      unresolved_calls: recorded(dossier.unresolved_calls),
       referenced_strings: count(
         "referenced_strings",
         dossier.referenced_strings,
       ),
       referenced_names: count("referenced_names", dossier.referenced_names),
+      swift_string_literals: recorded(dossier.swift_string_literals),
+      swift_string_literal_omissions: recorded(
+        dossier.swift_string_literal_omissions,
+      ),
       value_flow_operations: flow?.operations.length ?? 0,
       value_flow_def_use: flow?.def_use.length ?? 0,
       value_flow_effects: flow?.effects.length ?? 0,
@@ -186,6 +206,7 @@ const summaryView = (
   unknowns: uniqueSorted([
     ...common.unknowns,
     ...unavailableFacetUnknowns(dossier),
+    ...unrecordedFacetUnknowns(dossier),
   ]),
 });
 

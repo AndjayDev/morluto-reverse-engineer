@@ -121,6 +121,55 @@ it("projects a compact analyze_function summary that validates and retains the d
   });
 });
 
+it("keeps omitted optional dossier records unknown in the analyze_function summary", () => {
+  const dossier = functionDossierSchema.parse(ghidraFunctionDossier());
+  // The fixture omits unresolved_calls and Swift literals, as IDA and Kuna
+  // dossiers and non-Swift targets do: their counts are unknown, not zero.
+  const omitted = projectAnalysisView(nativeParent(dossier), {
+    kind: "summary",
+  });
+  if (!omitted.ok) throw omitted.error;
+  expect(analysisViewResultSchema.parse(omitted.value)).toMatchObject({
+    summary: {
+      counts: {
+        unresolved_calls: null,
+        swift_string_literals: null,
+        swift_string_literal_omissions: null,
+      },
+    },
+    unknowns: expect.arrayContaining([
+      "unresolved_calls not recorded",
+      "swift_string_literals not recorded",
+      "swift_string_literal_omissions not recorded",
+    ]),
+  });
+  const recorded = projectAnalysisView(
+    nativeParent({
+      ...dossier,
+      unresolved_calls: [{ address: "0x401010", reason: "indirect call" }],
+      swift_string_literals: [],
+      swift_string_literal_omissions: [],
+    }),
+    { kind: "summary" },
+  );
+  if (!recorded.ok) throw recorded.error;
+  expect(analysisViewResultSchema.parse(recorded.value)).toMatchObject({
+    summary: {
+      counts: {
+        unresolved_calls: 1,
+        swift_string_literals: 0,
+        swift_string_literal_omissions: 0,
+      },
+    },
+  });
+  expect(recorded.value.unknowns).not.toContain(
+    "unresolved_calls not recorded",
+  );
+  expect(recorded.value.unknowns).not.toContain(
+    "swift_string_literals not recorded",
+  );
+});
+
 it("keeps provider-unavailable facets unknown in the analyze_function summary", () => {
   // A Kuna-style dossier: empty rows with explicit unavailability for several facets.
   const dossier = functionDossierSchema.parse(ghidraFunctionDossier());

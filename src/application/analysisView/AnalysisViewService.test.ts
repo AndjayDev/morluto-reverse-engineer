@@ -180,6 +180,17 @@ it("projects a small native view from an authenticated >10 MiB retained dossier"
     { kind: "artifact-path", path: "/fixtures/large.exe" },
     { kind: "address", address: "0x401000" },
   ]);
+  // The summary describes the same function, so its envelope keeps the address.
+  const summary = inspectAnalysisView(
+    { source: input.source, view: { kind: "summary" } },
+    (id) => (id === parent.evidence_id ? parent : undefined),
+  );
+  if (!summary.ok) throw summary.error;
+  expect(summary.value.normalized_result).toMatchObject({
+    kind: "summary",
+    procedure_address: "0x401000",
+  });
+  expect(summary.value.locations).toEqual(view.value.locations);
   expect(JSON.stringify(view.value).length).toBeLessThan(12000);
   expect(JSON.stringify(parent).length).toBeGreaterThan(10 * 1024 * 1024);
   expect(inspectAnalysisView(input, () => undefined)).toMatchObject({

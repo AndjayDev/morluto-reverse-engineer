@@ -105,6 +105,17 @@ it("defaults to a retained summary and strips delivery detail before the provide
   // Partial caller/callee discovery stays with the summary that reports their counts.
   expect(evidence.relationship_coverage).toEqual(partialCallees);
   expect(ledger.get(parentId)?.relationship_coverage).toEqual(partialCallees);
+  // The summary envelope locates the function it describes.
+  expect(evidence.locations).toEqual([
+    { kind: "artifact-path", path: "/fixtures/native.exe" },
+    { kind: "address", address: dossier.procedure.address },
+  ]);
+  // Optional records the fixture omits stay unknown rather than reading as empty.
+  expect(evidence.normalized_result).toMatchObject({
+    summary: {
+      counts: { unresolved_calls: null, swift_string_literals: null },
+    },
+  });
 });
 
 it("composes inspect_native_api from a provider input without delivery detail", async () => {

@@ -636,6 +636,16 @@ const declaredFacetCountSchema = z
     "Observed rows; null when facet_availability declares the facet unavailable, so no rows is not evidence of none.",
   );
 
+/** Rows of an optional dossier record, or null when the dossier omitted it. */
+const recordedFacetCountSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .nullable()
+  .describe(
+    "Observed rows; null when the dossier did not record the facet (the native facet view reports it not recorded), so no rows is not evidence of none.",
+  );
+
 /** Compact analyze_function dossier; the complete dossier stays retained for facet paging. */
 export const nativeFunctionSummarySchema = z.strictObject({
   procedure: z.strictObject({
@@ -677,9 +687,11 @@ export const nativeFunctionSummarySchema = z.strictObject({
     callees: declaredFacetCountSchema,
     incoming_references: declaredFacetCountSchema,
     outgoing_references: declaredFacetCountSchema,
-    unresolved_calls: z.number().int().nonnegative(),
+    unresolved_calls: recordedFacetCountSchema,
     referenced_strings: declaredFacetCountSchema,
     referenced_names: declaredFacetCountSchema,
+    swift_string_literals: recordedFacetCountSchema,
+    swift_string_literal_omissions: recordedFacetCountSchema,
     value_flow_operations: z.number().int().nonnegative(),
     value_flow_def_use: z.number().int().nonnegative(),
     value_flow_effects: z.number().int().nonnegative(),
