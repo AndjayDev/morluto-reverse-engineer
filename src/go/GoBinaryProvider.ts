@@ -27,13 +27,14 @@ import {
   type InspectGoBinaryInput,
 } from "../domain/go/goBinary.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
+import { fixedAllowanceOptions } from "../domain/fixedAllowanceRemediation.js";
 import { ProviderCleanupError } from "../domain/providerCleanupError.js";
 import { err, ok, type Result } from "../domain/result.js";
+import { readGoBinaryImage } from "./GoBinaryImage.js";
 import {
-  readGoBinaryImage,
-  GoBinaryFormatFailure,
-  GoBinaryResourceFailure,
-} from "./GoBinaryImage.js";
+  BinaryFormatFailure,
+  BinaryResourceFailure,
+} from "../native/metadata/BinaryContainer.js";
 import { parseGoModuleBytes, parseGoModuleText } from "./GoModuleText.js";
 
 /** Bundled format reader identity; embedded compiler versions are separate observed facts. */
@@ -56,15 +57,25 @@ const failureForPrimary = (cause: unknown, path: string): AnalysisError => {
     return new AnalysisCancelledError(OPERATION, {
       cause: artifactFileCancellationCause(cause),
     });
-  if (cause instanceof GoBinaryResourceFailure)
+  if (cause instanceof BinaryResourceFailure)
     return new AnalysisResourceConstraintError(
       OPERATION,
       cause.boundary === "search" ? "cpu" : "memory",
       `Selected artifact ${path}: ${cause.message}`,
       { boundary: cause.boundary, maximum_bytes: cause.maximum_bytes },
-      { cause },
+      {
+        cause,
+        ...fixedAllowanceOptions(
+          cause.boundary === "search"
+            ? "The Go build-info header-search allowance"
+            : cause.boundary === "build-info"
+              ? "The Go build-info string allowance"
+              : "The Go structural decoding allowance",
+          cause.boundary === "search" ? "work" : "parser",
+        ),
+      },
     );
-  if (cause instanceof GoBinaryFormatFailure)
+  if (cause instanceof BinaryFormatFailure)
     return cause.kind === "unsupported"
       ? new AnalysisUnsupportedTargetError(OPERATION, path, cause.message, {
           cause,
@@ -152,6 +163,7 @@ const outputLimit = (path: string) =>
     "transport",
     `Complete Go metadata for ${path} exceeds the inline output budget; no partial success is returned.`,
     { maximum_output_bytes: OUTPUT_BYTES },
+    fixedAllowanceOptions("The Go complete-report allowance", "report"),
   );
 
 /** Fixed reader boundaries plus unknowns left by the observed metadata. */
@@ -211,7 +223,7 @@ export class GoBinaryProvider implements GoBinaryPort {
 
   /** Read complete compiler/module metadata while preserving original byte identity and source ranges. */
   async inspect(
-    input: InspectGoBinaryInput,
+    input: Omit<InspectGoBinaryInput, "detail">,
     options?: ExecutionOptions,
   ): Promise<Result<GoBinary, AnalysisError>> {
     try {

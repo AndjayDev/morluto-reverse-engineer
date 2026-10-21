@@ -8,6 +8,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { fixedAllowanceOptions } from "../domain/fixedAllowanceRemediation.js";
 import type { AnalysisCapturedOutput } from "../domain/analysisErrorBase.js";
 import {
   AnalysisCancelledError,
@@ -69,6 +70,7 @@ const rejectedArgument = {
 
 const rejectedReply = (
   reply: z.output<typeof replySchema> & { ok: false },
+  selectedPath: string,
   capturedOutput: AnalysisCapturedOutput,
 ) => {
   if (reply.reason === "unavailable")
@@ -97,13 +99,21 @@ const rejectedReply = (
         sqlite_value_or_record_bytes: SQLITE_DATABASE_LIMITS.outputBytes,
         worker_reply_bytes: SQLITE_DATABASE_LIMITS.outputBytes,
       },
-      { capturedOutput },
+      {
+        capturedOutput,
+        ...fixedAllowanceOptions("The SQLite worker reply allowance", "report"),
+      },
     );
+  const argument = rejectedArgument[reply.reason];
   return new AnalysisInputError(operation, { capturedOutput }, [
     {
-      path: [rejectedArgument[reply.reason]],
+      path: [argument],
       reason: "invalid_format",
-      message: reply.message,
+      // The worker sees only the private snapshot, so name the caller's selection here.
+      message:
+        argument === "path"
+          ? `Selected SQLite database is invalid (${reply.message}): ${selectedPath}`
+          : reply.message,
     },
   ]);
 };
@@ -206,6 +216,6 @@ export const executeSqliteDatabaseWorker = async (request: {
     bindArtifactFileCleanup(cause, error);
     throw error;
   }
-  if (!reply.ok) throw rejectedReply(reply, capturedOutput);
+  if (!reply.ok) throw rejectedReply(reply, request.input.path, capturedOutput);
   return reply.inspection;
 };

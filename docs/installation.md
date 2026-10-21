@@ -340,6 +340,13 @@ A scoped report has `scope.mode: "explicit"`. Its `scope_checks` determine
 `environment_healthy` summarizes the full audit. `--target` adds a target check,
 but the report remains audit-wide unless a scope option is also supplied.
 
+An invalid `REA_LOG_LEVEL` fails every scope, including one client or the
+installed skill, because the executable rejects it before any command. A
+selected client also fails for every other setting that MCP startup rejects,
+including `REA_GHIDRA_STARTUP_TIMEOUT_MS` and `REA_HOPPER_STARTUP_TIMEOUT_MS`.
+Those settings still fail a selected provider and the audit-wide result. A
+skill-only report leaves them informational.
+
 Follow the remediation for the failed check. If a native target has several
 available providers, choose one with `--provider` on the CLI or `provider_id`
 on `open_binary`. A `capability_unavailable` failure carries
@@ -1107,9 +1114,14 @@ and hyphens; at most 32 names are admitted, each at most 120 characters.
 Names must identify analyzers registered for the selected program. Unknown names
 or options that remain enabled abort the headless import before auto-analysis
 and the bridge, so an unsuccessful override cannot produce a session claiming
-that the analyzer was disabled. For Windows PE resource analysis, the exact name
-is `WindowsResourceReference`. Disabling an analyzer skips the facts it would
-have produced.
+that the analyzer was disabled. The setting applies to every import in the REA
+server. A format-specific analyzer may not be registered for another target, so
+the same override can prevent that target from opening. For mixed-target work,
+omit the override or use a separate REA server configured for the affected
+format. Changing the environment requires restarting the server; reopening a
+target alone keeps the current setting. For Windows PE resource analysis, the
+exact name is `WindowsResourceReference`. Disabling an analyzer skips the facts
+it would have produced.
 
 ### Ghidra heap and CPU controls
 

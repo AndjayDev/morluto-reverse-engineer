@@ -56,6 +56,8 @@ export type AvailabilityPolicy = {
   readonly signalRecordingEnabled?: boolean;
   readonly wasmArtifactEnabled?: boolean;
   readonly evmInterfaceEnabled?: boolean;
+  /** Fresh owner observation of the selected required EVM limiter. */
+  readonly evmLimiterAvailability?: ProviderAvailability;
   readonly processCaptureEnabled: boolean;
   readonly optionalProviderLoadFailures?: OptionalProviderLoadFailures;
   readonly binaryLayoutEnabled?: boolean;
@@ -412,6 +414,7 @@ const workflowAvailabilityFor = ({
     name === "inspect_desktop_application" ||
     name === "inspect_go_binary" ||
     name === "inspect_il2cpp_metadata" ||
+    name === "inspect_model_artifact" ||
     name === "inspect_rust_binary" ||
     name === "inspect_electron_fuses"
   )
@@ -495,14 +498,18 @@ const workflowAvailabilityFor = ({
         };
   if (name === "inspect_pe_resources")
     return { reason: "available", remediation: null };
-  if (name === "inspect_evm_interface")
-    return policy.evmInterfaceEnabled === true
-      ? { reason: "available", remediation: null }
-      : {
-          reason: "provider_missing",
-          remediation:
-            "The bundled offline EVM interface profile is currently real-verified on Linux x64. No active binary target or chain endpoint is required.",
-        };
+  if (name === "inspect_evm_interface") {
+    if (policy.evmInterfaceEnabled !== true)
+      return {
+        reason: "provider_missing",
+        remediation:
+          "The bundled offline EVM interface profile is currently real-verified on Linux x64. No active binary target or chain endpoint is required.",
+      };
+    const limiter = policy.evmLimiterAvailability;
+    if (limiter?.status === "unavailable")
+      return { reason: "provider_missing", remediation: limiter.reason };
+    return { reason: "available", remediation: null };
+  }
   if (name === "inspect_recorded_crash")
     return policy.recordedCrashEnabled === true
       ? { reason: "available", remediation: null }
@@ -678,6 +685,7 @@ const targetAvailability = ({
   targetKind,
   targetFormat,
   targetOpen,
+  descriptors,
 }: AvailabilityContext): Availability | null => {
   if (FRIDA_OPERATION_NAMES.has(name)) return null;
   if (!targetOpen && ACTIVE_TARGET_KINDS.has(kind))
@@ -685,6 +693,14 @@ const targetAvailability = ({
       reason: "target_required",
       remediation: "Call open_binary with a supported local target.",
     };
+  const descriptor = descriptors.get(name);
+  if (
+    targetOpen &&
+    descriptor?.available === false &&
+    (descriptor.availability_code === "target_kind_unsupported" ||
+      descriptor.availability_code === "target_format_unsupported")
+  )
+    return { reason: "target_unsupported", remediation: descriptor.reason };
   if (
     targetKind !== undefined &&
     targetKind !== "executable" &&

@@ -29,8 +29,16 @@ const timelineEventSchema = z.object({
     "load_failed",
     "lifecycle",
     "target_terminated",
+    "session_detached",
+    "transport_disconnected",
   ]),
-  timestamp: z.number().min(0),
+  timestamp: z
+    .number()
+    .min(0)
+    .nullable()
+    .describe(
+      "CDP monotonic seconds when supplied; null when the event has no valid comparable producer timestamp.",
+    ),
   frame_id: z.string().nullable(),
   loader_id: z.string().nullable(),
   request_id: z.string().nullable(),
@@ -57,6 +65,8 @@ export const webObservationSessionSchema = z.object({
       "window_elapsed",
       "target_left_scope",
       "target_terminated",
+      "session_detached",
+      "transport_disconnected",
     ]),
   }),
   timeline: z.array(timelineEventSchema),

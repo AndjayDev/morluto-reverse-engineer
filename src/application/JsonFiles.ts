@@ -20,6 +20,8 @@ import {
 } from "../domain/analysisErrorCore.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
+  JsonInputPhysicalReadFailure,
+  JsonInputCancellationFailure,
   readJsonInputFile,
   readJsonObjectFile,
   type JsonObjectMemberReader,
@@ -47,7 +49,10 @@ export const readJsonFile = async (
   signal?: AbortSignal,
   resources?: ArtifactResourceScope,
 ): Promise<
-  Result<unknown, EvidenceFileError | AnalysisResourceConstraintError>
+  Result<
+    unknown,
+    EvidenceFileError | AnalysisResourceConstraintError | AnalysisCancelledError
+  >
 > =>
   readJsonFileInput(
     path,
@@ -94,7 +99,10 @@ const readJsonFileInput = async <Value>(
   >,
   signal?: AbortSignal,
 ): Promise<
-  Result<Value, EvidenceFileError | AnalysisResourceConstraintError>
+  Result<
+    Value,
+    EvidenceFileError | AnalysisResourceConstraintError | AnalysisCancelledError
+  >
 > => {
   const requestedPath = absoluteCallerPath(path);
   try {
@@ -117,7 +125,25 @@ const readJsonFileInput = async <Value>(
   } catch (cause: unknown) {
     if (cause instanceof RegularFileCleanupFailure) throw cause;
     if (cause instanceof AnalysisResourceConstraintError) return err(cause);
-    if (signal?.aborted === true) throw cause;
+    if (cause instanceof JsonInputCancellationFailure)
+      return err(
+        new AnalysisCancelledError("read_evidence_file", {
+          cause: cause.reason,
+        }),
+      );
+    if (cause instanceof JsonInputPhysicalReadFailure)
+      return err(
+        new EvidenceFileError("read", "io", {
+          cause: cause.physicalCause,
+          path: requestedPath,
+        }),
+      );
+    if (isJsonReadCancellation(cause, signal))
+      return err(
+        new AnalysisCancelledError("read_evidence_file", {
+          cause: signal?.reason,
+        }),
+      );
     return err(
       new EvidenceFileError(
         "read",
@@ -131,6 +157,21 @@ const readJsonFileInput = async <Value>(
       ),
     );
   }
+};
+
+const isJsonReadCancellation = (
+  cause: unknown,
+  signal?: AbortSignal,
+): boolean => {
+  if (signal?.aborted !== true) return false;
+  if (cause === signal.reason) return true;
+  return (
+    cause instanceof Error &&
+    cause.name === "AbortError" &&
+    "code" in cause &&
+    cause.code === "ABORT_ERR" &&
+    cause.cause === signal.reason
+  );
 };
 
 /** Atomically write text to the caller-supplied path. */
@@ -242,7 +283,8 @@ const writeTextPartsOwned = async (
       if (cause.outcome.error instanceof AnalysisCancelledError)
         return err(
           new AnalysisCancelledError(cause.outcome.error.operation, {
-            cause,
+            cause: cause.outcome.error.cause,
+            cleanupPrimary: cause.outcome.error,
             cleanup,
           }),
         );
@@ -382,7 +424,9 @@ const writeStagedParts = async (
 
 const assertWriteActive = (cancellation?: TextWriteCancellation): void => {
   if (cancellation?.signal.aborted === true)
-    throw new AnalysisCancelledError(cancellation.operation);
+    throw new AnalysisCancelledError(cancellation.operation, {
+      cause: cancellation.signal.reason,
+    });
 };
 
 const fileErrorCode = (cause: unknown): unknown =>

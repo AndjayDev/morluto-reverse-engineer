@@ -11,13 +11,14 @@
     "scripts/verify/fridaBindingsCompatibility.ts",
     "scripts/verify/termux/browser.mjs",
     "scripts/verify-real-ghidra-noreturn.mjs",
+    "scripts/verify-real-ghidra-decompiler-failure.mjs",
     "tests/processOwnershipRunner.ts"
   ],
   "project": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.mjs"],
   "vitepress": {
     "entry": ["docs/.vitepress/config.ts"]
   },
-  "ignoreBinaries": ["mkfifo"],
+  "ignoreBinaries": ["^g\\+\\+$", "mkfifo"],
   "ignoreDependencies": [
     "@stryker-mutator/command-runner",
     "electron",
