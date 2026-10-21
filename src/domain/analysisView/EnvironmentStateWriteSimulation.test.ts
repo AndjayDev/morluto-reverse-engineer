@@ -357,3 +357,53 @@ describe("insert rules", () => {
     });
   });
 });
+
+describe("reads the served answer no longer matches", () => {
+  it("contradicts an update when a later read's body no longer holds the entity", () => {
+    const rows: TimedCaptureRow[] = [
+      ["GET", "/api/books", [FIRST_BOOK, SECOND_BOOK]],
+      ["GET", "/api/books/1", { data: FIRST_BOOK }],
+      ["GET", "/api/books/2", { data: SECOND_BOOK }],
+      ["PATCH", "/api/books/1", RENAMED, 200, { name: "Renamed Book" }],
+      ["GET", "/api/books/1", { data: null }],
+      ["GET", "/api/books/1", { data: RENAMED }],
+    ];
+    // Serving still answers the renamed book, so the read that shows none is a check it fails, not one it skips.
+    expect(gated(rows, "patch_books_by_id")).toMatchObject({
+      served: false,
+      reason: "contradicted",
+      contradicted_by: 4,
+    });
+  });
+
+  it("confirms no create by the absence of the entity a later delete removed", () => {
+    const rows: TimedCaptureRow[] = [
+      ...BOOK_INIT_ROWS,
+      ["POST", "/api/books", THIRD_BOOK, 201, { name: "Third Book" }],
+      ["DELETE", "/api/books/3", "", 204],
+      ["GET", "/api/books/3", BOOK_NOT_FOUND, 404],
+      ["GET", "/api/books", [FIRST_BOOK, SECOND_BOOK]],
+    ];
+    expect(gated(rows, "post_books")).toMatchObject({
+      served: false,
+      reason: "unconfirmed",
+      checked_record_ordinals: [],
+    });
+    expect(gated(rows, "delete_books_by_id")).toMatchObject({
+      served: true,
+      checked_record_ordinals: [5, 6],
+    });
+  });
+
+  it("confirms no create whose entity lacks a field every recording of its item view carried", () => {
+    const detailed = (entry: Book): Book => ({ ...entry, detail: "x" });
+    const rows: TimedCaptureRow[] = [
+      ["GET", "/api/books", [FIRST_BOOK, SECOND_BOOK]],
+      ["GET", "/api/books/1", detailed(FIRST_BOOK)],
+      ["GET", "/api/books/2", detailed(SECOND_BOOK)],
+      ["POST", "/api/books", THIRD_BOOK, 201, { name: "Third Book" }],
+      ["GET", "/api/books/3", THIRD_BOOK],
+    ];
+    expect(gated(rows, "post_books")).toMatchObject({ served: false });
+  });
+});

@@ -61,6 +61,10 @@ export class EnvironmentStateStore {
   #writes = 0;
   /** The largest value each sequence has generated since the last reset or load, so a deleted entity's value is not reused. */
   readonly #sequences = new Map<string, number>();
+  /** The entities the state held when it was last reset or loaded, whose values no sequence reuses either. */
+  #started: readonly StateEntity[] = [];
+  /** Every collection spelling a type's entities have been held under, kept when a collection empties. */
+  readonly #knownCollections = new Map<string, string[]>();
 
   constructor(readonly state: EnvironmentState) {
     this.#types = new Map(
@@ -128,6 +132,12 @@ export class EnvironmentStateStore {
   #restart(): void {
     this.#writes = 0;
     this.#sequences.clear();
+    this.#started = this.#content.entities;
+  }
+
+  /** The entities of a type the state held when it was last reset or loaded. */
+  startedWith(type: string): readonly StateEntity[] {
+    return this.#started.filter((entity) => entity.type === type);
   }
 
   /** Every held entity of a type, in state order. */
@@ -262,6 +272,11 @@ export class EnvironmentStateStore {
     return this.#typeCollections.get(type) ?? [];
   }
 
+  /** Every collection spelling a type's entities have been held under, including ones that have since emptied. */
+  knownCollectionsOf(type: string): readonly string[] {
+    return this.#knownCollections.get(type) ?? [];
+  }
+
   document(tool: string): HeldDocument | undefined {
     return this.#documents.get(tool);
   }
@@ -324,6 +339,12 @@ export class EnvironmentStateStore {
     this.#entities = entities;
     this.#collections = collections;
     this.#typeCollections = typeCollections;
+    for (const [type, named] of typeCollections) {
+      const known = this.#knownCollections.get(type) ?? [];
+      for (const collection of named)
+        if (!known.includes(collection)) known.push(collection);
+      this.#knownCollections.set(type, known);
+    }
     this.#documents = new Map(
       content.documents.map((document) => [document.tool, document]),
     );

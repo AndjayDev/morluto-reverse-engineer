@@ -98,7 +98,8 @@ describe("served write plans", () => {
       collection: null,
       insert: { rule: "sorted", field: "id", direction: "ascending" },
       merge: null,
-      checked_record_ordinals: [4, 9],
+      // The final list follows the delete of book 3, so it shows nothing of the create.
+      checked_record_ordinals: [4],
       contradicted_by: null,
     });
     // PATCH requires no member; the slug follows the sent name and the update stamps its clock.

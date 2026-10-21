@@ -185,12 +185,18 @@ or a list read's members as serving would list them (so a member the copy no
 longer holds fails the check) rendered into its line's base recording. It is
 compared with the recording, as the read gate compares, with volatile fields taking the
 observed values. A recorded 400, 404 or 410, or a 2xx with a JSON `null`
-body, for an entity the copy does not hold agrees with it.
+body, for an entity the copy does not hold agrees with it. A successful read
+whose usable body no longer holds the entity or the list fails, as does one of
+an entity lacking a field every recording of its view carried, which serving
+refuses to answer with.
 
 **Attribution.**
 
 - A check exercises the write tools that changed its entity or collection
-  since the previous check of it. A pass confirms them and a mismatch
+  since the previous check of it, less those a later write replaced: a create
+  or delete replaces an entity's earlier writes, an update the earlier updates
+  whose fields it rewrites, and a write left with no changed entity in a
+  collection no longer counts there. A pass confirms them and a mismatch
   contradicts them.
 - A mismatch after an unmodelled write that followed those writes is checked
   only on the members they sent: such a write may explain the rest.
@@ -260,7 +266,7 @@ recording instead.
 
 A create in a collection held under more than one spelling (`acme1` and
 `%61cme1`) goes to the one the call spells verbatim, as item calls choose their
-entity. `data/add` refuses a document that `data/get` would write back past the
+entity; a collection keeps its spelling after its last entity is deleted. `data/add` refuses a document that `data/get` would write back past the
 32 MiB intake limit once it adds the members a document may omit, such as
 `types` and the state Evidence id.
 
@@ -268,9 +274,10 @@ entity. `data/add` refuses a document that `data/get` would write back past the
 advances one second before each served write; clock fields take its value in
 their recorded format.
 
-- **Sequences:** one more than both the largest current value in their scope
-  and the largest value they generated, so a deleted entity's value is not
-  reused, as database sequences do not reuse values.
+- **Sequences:** one more than the largest current value in their scope, the
+  largest the state started with at its last reset or load, and the largest
+  value they generated, so a deleted entity's value is not reused, as database
+  sequences do not reuse values.
 - **UUIDs and tokens:** derived from a SHA-256 of the state Evidence id, the
   tool, the field and a write counter, skipping values the type already holds.
 

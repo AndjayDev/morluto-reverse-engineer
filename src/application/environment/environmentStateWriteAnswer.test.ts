@@ -489,3 +489,60 @@ describe("missing entities after a delete", () => {
     });
   });
 });
+
+describe("values the state started with", () => {
+  it("never reuses a seeded id for a create, even after its entity is deleted first", () => {
+    const books = servedFrom();
+    books.answer("delete_books_by_id", { id: "2" });
+    books.answer("post_books", CREATE_NEW_BOOK);
+    expect(entityOf(books, "2")).toBeUndefined();
+    expect(entityOf(books, "3")?.fields).toMatchObject({ name: "New Book" });
+  });
+
+  it("creates in a collection's recorded spelling after the collection empties", () => {
+    const orgBook = (id: number, org: string, name: string): Book => ({
+      id,
+      org,
+      name,
+    });
+    const alpha = orgBook(1, "my org1", "Alpha");
+    const beta = orgBook(2, "acme2", "Beta");
+    const gamma = orgBook(3, "my org1", "Gamma");
+    const delta = orgBook(4, "acme2", "Delta");
+    const books = servedFrom([
+      ["GET", "/api/orgs/my%20org1/books", [alpha]],
+      ["GET", "/api/orgs/acme2/books", [beta]],
+      ["GET", "/api/orgs/my%20org1/books/1", alpha],
+      ["GET", "/api/orgs/acme2/books/2", beta],
+      ["POST", "/api/orgs/my%20org1/books", gamma, 201, { name: "Gamma" }],
+      ["GET", "/api/orgs/my%20org1/books", [alpha, gamma]],
+      ["POST", "/api/orgs/acme2/books", delta, 201, { name: "Delta" }],
+      ["GET", "/api/orgs/acme2/books", [beta, delta]],
+    ]);
+    const { rea_state: held } = books.store.snapshot();
+    // Load a state in which the encoded organisation holds no book.
+    expect(
+      books.store.replace({
+        rea_state: {
+          version: held.version,
+          entities: held.entities.filter(
+            (entity) => !entity.collection.includes("%20"),
+          ),
+          documents: held.documents,
+        },
+      }).ok,
+    ).toBe(true);
+    const tool = books.source.manifest.tools.find(
+      (candidate) => candidate.method === "POST",
+    )!;
+    const [org] = environmentToolArguments(tool).path.values();
+    books.answer(tool.name, { [org!]: "my%20org1", body: { name: "Epsilon" } });
+    expect(
+      books.store
+        .snapshot()
+        .rea_state.entities.find(
+          (entity) => entity.fields["name"] === "Epsilon",
+        )?.collection,
+    ).toBe("/api/orgs/my%20org1/books");
+  });
+});

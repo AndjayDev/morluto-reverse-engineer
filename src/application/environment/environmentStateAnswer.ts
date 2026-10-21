@@ -3,6 +3,7 @@ import {
   collectionPathOf,
   listItems,
   pagesOnly,
+  missingRequiredFields,
   renderStateEntity,
   renderStateList,
   replaceAt,
@@ -104,12 +105,9 @@ const shownEntity = (
   entity: StateEntity,
   volatile: ReadonlySet<string>,
 ): Result<JsonObject, AnalysisError> => {
-  const shown = renderStateEntity(entity, view, volatile);
-  const missing = view.required_fields.filter(
-    (name) => !Object.hasOwn(shown, name),
-  );
+  const missing = missingRequiredFields(entity, view, volatile);
   return missing.length === 0
-    ? ok(shown)
+    ? ok(renderStateEntity(entity, view, volatile))
     : err(
         refused(
           tool,

@@ -223,3 +223,15 @@ fails on the previous head. The gates passed again (domain and services 7475
 with 5 pre-existing skips, boundaries 75, conformance, `jscpd` 3.46%), the
 verdicts over the 50 captures were unchanged plan by plan, and the smoke
 applied all 33 served write tools.
+
+A sixth round, after merging the serving and coverage branches and main
+335c042d, settled five more findings: a read whose usable body no longer holds
+the entity or list fails its check, an entity lacking a field its view always
+carried confirms nothing, a write a later write replaced is not confirmed by
+reads of the replacement, sequences never reuse a value the state started
+with, and a collection keeps its spelling after it empties. Each new test fails
+on the previous head. Over the 50 captures one capture's verdicts change:
+Linkding's bundle create and patch, confirmed only by a list read after the
+same bundle was deleted, are now unconfirmed, so 31 write tools are served (10
+creates, 11 updates, 10 deletes) and the in-process smoke applies all 31. The
+gates passed again (domain and services, boundaries, conformance and `jscpd`).

@@ -159,6 +159,9 @@ const generator = (
     return value;
   };
   const ofType = store.ofType(request.plan.target ?? "");
+  // A sequence never reuses a value the state started with, even after its entity was deleted.
+  const started = store.startedWith(request.plan.target ?? "");
+  const startedIn = started.filter((held) => held.collection === target.name);
   const unused = (field: string, make: (attempt: number) => string): string => {
     const held = new Set(
       ofType.map((entity) => scalarText(entity.fields[field])),
@@ -182,7 +185,9 @@ const generator = (
           sequence(
             `${request.tool.name} ${rule.field} ${rule.scope === "collection" ? target.name : ""}`,
             nextInteger(
-              rule.scope === "collection" ? target.collection : ofType,
+              rule.scope === "collection"
+                ? [...target.collection, ...startedIn]
+                : [...ofType, ...started],
               rule.field,
             ),
           ),
@@ -197,7 +202,7 @@ const generator = (
             exemplar,
             sequence(
               `${request.plan.target ?? ""} ${rule.field} ${target.name}`,
-              nextInteger(target.collection, rule.field),
+              nextInteger([...target.collection, ...startedIn], rule.field),
             ),
           );
         return unused(rule.field, (attempt) =>
@@ -241,10 +246,10 @@ const createdCollection = (
 ): string | undefined => {
   const segments = callSegments(request.tool, request.args);
   if (segments === undefined) return undefined;
-  // The spelling the call supplies verbatim wins, as item calls choose their entity.
+  // The spelling the call supplies verbatim wins, as item calls choose their entity; an emptied collection keeps its spelling.
   let held: string | undefined;
   let verbatim = -1;
-  for (const collection of serving.store.collectionsOf(
+  for (const collection of serving.store.knownCollectionsOf(
     request.plan.target ?? "",
   )) {
     const matched = collectionMatch(collection, segments);

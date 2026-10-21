@@ -537,6 +537,16 @@ export const renderStateEntity = (
   );
 };
 
+/** The fields every recording of a view carried that the entity, as serving renders it, lacks; serving refuses to answer with such an entity. */
+export const missingRequiredFields = (
+  entity: StateEntity,
+  view: Pick<EntityViewPlan, "tool" | "fields" | "required_fields">,
+  volatileFields: ReadonlySet<string>,
+): string[] => {
+  const shown = renderStateEntity(entity, view, volatileFields);
+  return view.required_fields.filter((name) => !Object.hasOwn(shown, name));
+};
+
 /** A list response rendered from `base`: its array replaced by `items` and its counters set to their number. */
 export const renderStateList = (
   view: Pick<StateListView, "pointer" | "counters">,
