@@ -12,7 +12,6 @@ import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.j
 import type { AnalysisCleanupObservation } from "../domain/analysisErrorBase.js";
 import { readReferenceSource } from "../reference/ReferenceSourceReader.js";
 import type {
-  ReferenceSourceExclusionKind,
   ReferenceSourceRead,
   ReferenceSourceReaderError,
 } from "../reference/ReferenceSourceReaderTypes.js";
@@ -22,10 +21,7 @@ import type {
   ReferenceSourceImportError,
   ReferenceSourceImportOptions,
 } from "./ReferenceSourceImportTypes.js";
-import {
-  prepareReferenceSourceImport,
-  type PreparedReferenceSourceImport,
-} from "./ReferenceSourceImportPolicy.js";
+import { prepareReferenceSourceImport } from "./ReferenceSourceImportPolicy.js";
 
 const failure = (
   code: ReferenceSourceImportError["code"],
@@ -138,59 +134,6 @@ const sortExclusions = (
     );
   });
 
-const createShouldExclude =
-  (
-    exclusions: HistoricalSourceGraphInput["exclusions"],
-    secrets: PreparedReferenceSourceImport["secrets"],
-    ignored: PreparedReferenceSourceImport["ignored"],
-  ): ((path: string, kind: ReferenceSourceExclusionKind) => boolean) =>
-  (path, kind) => {
-    // An entry of unknown kind may be a directory, so directory-only rules
-    // must still exclude it; this fails closed for caller-marked secrets.
-    const patternPaths =
-      kind === "directory"
-        ? [`${path}/`]
-        : kind === "unknown"
-          ? [path, `${path}/`]
-          : [path];
-    const firstMatch = (matcher: typeof secrets) => {
-      const results = patternPaths.map((patternPath) =>
-        matcher.test(patternPath),
-      );
-      return results.find(({ ignored }) => ignored) ?? results[0];
-    };
-    const secretMatch = firstMatch(secrets);
-    if (secretMatch?.ignored === true) {
-      if (!secretMatch.rule)
-        throw new Error(`Ignored secret path has no matching rule: ${path}`);
-      exclusions.push({
-        path,
-        entry_kind: kind,
-        reason: "configured-secret",
-        pattern: secretMatch.rule.pattern,
-      });
-      return true;
-    }
-    const match = firstMatch(ignored);
-    if (match?.ignored !== true) return false;
-    if (!match.rule)
-      throw new Error(`Ignored path has no matching rule: ${path}`);
-    const reason = match.rule.mark;
-    if (
-      reason !== "project-ignored" &&
-      reason !== "default-ignored" &&
-      reason !== "caller-excluded"
-    )
-      throw new Error(`Ignored path has unknown rule origin: ${path}`);
-    exclusions.push({
-      path,
-      entry_kind: kind,
-      reason,
-      pattern: match.rule.pattern,
-    });
-    return true;
-  };
-
 /**
  * Import a reference source directory into a committed historical source graph.
  *
@@ -203,18 +146,20 @@ export const importReferenceSource = async (
   resources: ArtifactResourceScope,
 ): Promise<Result<HistoricalSourceGraph, ReferenceSourceImportError>> => {
   if (isAborted(options.signal)) return err(cancelled());
-  const prepared = await prepareReferenceSourceImport(options, resources);
-  if (!prepared.ok) return prepared;
-  const { ignored, root, secrets } = prepared.value;
-  if (isAborted(options.signal)) return err(cancelled());
-
   const exclusions: HistoricalSourceGraphInput["exclusions"] = [];
-  const shouldExclude = createShouldExclude(exclusions, secrets, ignored);
+  const prepared = await prepareReferenceSourceImport(
+    options,
+    resources,
+    exclusions,
+  );
+  if (!prepared.ok) return prepared;
+  const { root, policy } = prepared.value;
+  if (isAborted(options.signal)) return err(cancelled());
 
   const [readResult, vcsResult] = await Promise.all([
     readReferenceSource(root, resources, {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
-      shouldExclude,
+      ...policy,
     }),
     readReferenceSourceVcs(root, resources, options.signal),
   ]);
@@ -298,10 +243,6 @@ const combineReadFailures = (
   other: ReferenceSourceReaderError | undefined,
   partial: ReferenceSourceRead | undefined,
 ): ReferenceSourceImportError => {
-  const code =
-    primary.code === "cancelled" || other?.code === "cancelled"
-      ? "cancelled"
-      : primary.code;
   const cleanup = mergeCleanup(primary.cleanup, other?.cleanup);
   const message =
     other === undefined
@@ -316,7 +257,7 @@ const combineReadFailures = (
           { cause: primary },
         );
   return {
-    ...failure(code, message),
+    ...failure(primary.code, message),
     ...(cleanup === undefined ? {} : { cleanup }),
     ...(partial === undefined ? {} : { partial }),
     ...(cause === undefined ? {} : { cause }),

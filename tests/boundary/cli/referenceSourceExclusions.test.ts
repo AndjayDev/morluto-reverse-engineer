@@ -123,3 +123,67 @@ describe.skipIf(process.platform === "win32")(
     );
   },
 );
+
+describe.skipIf(process.platform === "win32")(
+  "compiled nested reference-source exclusions",
+  () => {
+    cliTest(
+      "omits package-generated files and their imports using a nested ignore file",
+      async ({ cli }) => {
+        const root = await createTestTempDirectory("rea-reference-nested-cli-");
+        await mkdir(join(root, "packages/widget/generated"), {
+          recursive: true,
+        });
+        await Promise.all([
+          writeFile(join(root, ".gitignore"), "root-generated.js\n"),
+          writeFile(join(root, "root-generated.js"), "export {};\n"),
+          writeFile(join(root, "packages/widget/.gitignore"), "generated/\n"),
+          writeFile(join(root, "packages/widget/main.js"), "export {};\n"),
+          writeFile(
+            join(root, "packages/widget/generated/stale.js"),
+            'import "./missing.js";\n',
+          ),
+        ]);
+        const result = await cli.run({
+          arguments: ["import-reference-source", root, "--json"],
+          cwd: root,
+          environment: {
+            HOME: root,
+            USERPROFILE: root,
+            XDG_CONFIG_HOME: root,
+            XDG_CACHE_HOME: root,
+          },
+        });
+        expect(result.exitCode).toBe(0);
+        const graph = historicalSourceGraphSchema.parse(result.json);
+        expect(graph.exclusions).toEqual([
+          {
+            path: "packages/widget/generated",
+            entry_kind: "directory",
+            reason: "project-ignored",
+            pattern: "generated/",
+          },
+          {
+            path: "root-generated.js",
+            entry_kind: "file",
+            reason: "project-ignored",
+            pattern: "root-generated.js",
+          },
+        ]);
+        expect(
+          graph.entries.some(({ path }) =>
+            path.startsWith("packages/widget/generated"),
+          ),
+        ).toBe(false);
+        expect(graph.entries).toContainEqual(
+          expect.objectContaining({
+            path: "packages/widget/main.js",
+            kind: "file",
+            content_state: "hashed",
+          }),
+        );
+        expect(graph.relationships).toEqual([]);
+      },
+    );
+  },
+);

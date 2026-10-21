@@ -320,9 +320,15 @@ other facts. No fixed output-size or runtime improvement is promised.
 The import records hashes and metadata for the supplied files, separately
 from observations of the current app. For a directory inside a Git checkout,
 it records the HEAD of the nearest enclosing repository; whether the working
-tree matches that commit remains unknown. It honors the source tree's `.gitignore`
-and applies default exclusions for common generated and dependency paths such
-as `node_modules/`, `dist/`, and `*.log`. Pattern-based exclusions record the
+tree matches that commit remains unknown. It loads `.gitignore` files inside the
+selected root as it enters each directory. Child rules apply within that directory
+and can override inherited project rules; excluded directories are not traversed.
+Ignore files above the selected root and Git's global excludes are not loaded.
+Child ignore files must be readable regular UTF-8 files. A policy-read failure
+stops the import and retains the inventory already captured.
+Default exclusions for common generated and dependency paths such as
+`node_modules/`, `dist/`, and `*.log` still apply after project rules, followed by
+caller exclusions. Pattern-based exclusions record the
 matched pattern and whether it came from project, default, caller, or sensitive
 path policy. Links into excluded paths retain their internal target metadata;
 the exclusion explains why the target has no inventory entry, and the inventory
