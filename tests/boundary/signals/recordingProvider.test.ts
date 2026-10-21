@@ -16,6 +16,7 @@ import { PrivateRuntimeRoot } from "../../../src/process/PrivateRuntimeRoot.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { createDeferred } from "../../fixtures/binarySession.js";
+import { analysisErrorRemediationAction } from "../../../src/domain/analysisErrorPresentation.js";
 
 // A command-boundary simulator: real process ownership/filesystem, not real sigrok coverage.
 const fixture = async (mode = "ok", failCleanup = false) => {
@@ -643,10 +644,10 @@ it.each([
       resource: "memory",
       retryable: false,
     });
-    expect(result.error.remediationAction).toContain(
+    expect(analysisErrorRemediationAction(result.error)).toContain(
       "The retained command-output allowance",
     );
-    expect(result.error.remediationAction).not.toMatch(
+    expect(analysisErrorRemediationAction(result.error)).not.toMatch(
       /Review the reported worker memory limits/u,
     );
   }
