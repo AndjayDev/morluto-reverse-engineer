@@ -4,12 +4,14 @@ import { parseBinary } from "plist";
 import { appleResourceKeyFields } from "../../domain/apple/appleAssetCatalog.js";
 import {
   interfaceBuilderConnectionFieldNames,
+  isInterfaceBuilderConnectionClass,
   isUIKitRuntimeConnectionClass,
 } from "../../domain/apple/interfaceBuilderKeyedArchive.js";
 import { DirectoryArtifactReader } from "../DirectoryArtifactReader.js";
 import {
   projectPlistValue,
   unknownDateLimitation,
+  unknownScalarLimitation,
 } from "../../domain/apple/plistValue.js";
 import {
   omittedPrototypeKeysLimitation,
@@ -53,7 +55,8 @@ const MAX_REPORTED_OMITTED_ARCHIVES = 64;
 /** Decode compiled Interface Builder archives from a local app bundle. */
 export const analyzeInterfaceBuilderBundle = async (input: {
   readonly bundlePath: string;
-  readonly targetSha256: string;
+  readonly targetSha256: string | null;
+  readonly resourceRoot?: import("../../domain/apple/bundleResourceRoot.js").BundleResourceRoot;
   readonly limits?: unknown;
   readonly signal?: AbortSignal;
 }) => {
@@ -67,6 +70,7 @@ export const analyzeInterfaceBuilderBundle = async (input: {
   const unresolvedConnections = new Map<string, number>();
   const prototypeKeyOmissions = new Map<string, number | null>();
   const unknownDates = new Map<string, number>();
+  const unknownScalars = new Map<string, number>();
   let omitted = 0;
   let attempted = 0;
   let aggregateInputBytes = 0;
@@ -148,6 +152,7 @@ export const analyzeInterfaceBuilderBundle = async (input: {
           value: raw,
           omittedPrototypeKeys,
           unknownDateCount,
+          unknownScalarCount,
           numberLiterals,
         } = nib === null
           ? decodePlist(bytes, xmlText, binaryPrototypeKeyObserved)
@@ -155,6 +160,7 @@ export const analyzeInterfaceBuilderBundle = async (input: {
               value: nib.raw,
               omittedPrototypeKeys: 0,
               unknownDateCount: 0,
+              unknownScalarCount: 0,
               numberLiterals: undefined,
             };
         if (nib !== null && nib.omitted > 0)
@@ -165,6 +171,8 @@ export const analyzeInterfaceBuilderBundle = async (input: {
           prototypeKeyOmissions.set(entry.path, omittedPrototypeKeys);
         if (unknownDateCount !== 0)
           unknownDates.set(entry.path, unknownDateCount);
+        if (unknownScalarCount !== 0)
+          unknownScalars.set(entry.path, unknownScalarCount);
         const documentHash = createHash("sha256").update(bytes).digest("hex");
         documents.push({
           relativePath: entry.path,
@@ -198,6 +206,9 @@ export const analyzeInterfaceBuilderBundle = async (input: {
   }
   const result = buildInterfaceBuilderAnalysis({
     targetSha256: input.targetSha256,
+    ...(input.resourceRoot === undefined
+      ? {}
+      : { resourceRoot: input.resourceRoot }),
     toolVersion: "rea-interface-builder/1",
     documents,
     limits,
@@ -207,6 +218,7 @@ export const analyzeInterfaceBuilderBundle = async (input: {
     unresolvedConnections,
     prototypeKeyOmissions,
     unknownDates,
+    unknownScalars,
     invalid,
     omittedArchives,
     unreportedOmittedArchives,
@@ -276,6 +288,7 @@ const finalizeHierarchyCoverage = (
     unresolvedConnections: ReadonlyMap<string, number>;
     prototypeKeyOmissions: ReadonlyMap<string, number | null>;
     unknownDates: ReadonlyMap<string, number>;
+    unknownScalars: ReadonlyMap<string, number>;
     invalid: readonly string[];
     omittedArchives: readonly { path: string; reason: string }[];
     unreportedOmittedArchives: number;
@@ -288,6 +301,7 @@ const finalizeHierarchyCoverage = (
     unresolvedConnections,
     prototypeKeyOmissions,
     unknownDates,
+    unknownScalars,
     invalid,
     omittedArchives,
     unreportedOmittedArchives,
@@ -375,6 +389,9 @@ const finalizeHierarchyCoverage = (
       ),
       ...[...unknownDates].map(
         ([path, count]) => `${path}: ${unknownDateLimitation(count)}`,
+      ),
+      ...[...unknownScalars].map(
+        ([path, count]) => `${path}: ${unknownScalarLimitation(count)}`,
       ),
       ...omittedArchives.map(
         ({ path, reason }) =>
@@ -564,7 +581,7 @@ const projectNibArchive = (
     // AppKit connectors use NS-prefixed keys; UIKit's runtime outlet and
     // event connections use UI-prefixed keys with the same roles.
     const uiKit = isUIKitRuntimeConnectionClass(className);
-    if (!uiKit && !className.includes("Connector")) continue;
+    if (!isInterfaceBuilderConnectionClass(className)) continue;
     const values = object.values;
     const connectionFields = interfaceBuilderConnectionFieldNames(className);
     const source = reference(values[connectionFields.source]);
@@ -746,6 +763,7 @@ const decodePlist = (
   readonly value: JsonValue;
   readonly omittedPrototypeKeys: number | null;
   readonly unknownDateCount: number;
+  readonly unknownScalarCount: number;
   readonly numberLiterals: PlistNumberLiterals;
 } => {
   const binary = hasBinaryPlistSignature(bytes);
@@ -766,6 +784,7 @@ const decodePlist = (
     value: projected.value,
     omittedPrototypeKeys,
     unknownDateCount: projected.unknownDateCount,
+    unknownScalarCount: projected.unknownScalarCount,
     numberLiterals,
   };
 };
