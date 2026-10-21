@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   completeReconstructionCoverageData,
+  dependencyReconstructionCoverageData,
+  contradictionReconstructionCoverageData,
   completeReconstructionCoverageFixture,
   RECONSTRUCTION_COVERAGE_NOW,
   reconstructionCoverageEvidenceId,
@@ -544,4 +546,263 @@ describe("reconstruction coverage verifier future timestamps", () => {
       ]),
     );
   });
+});
+
+describe("reconstruction dependency inventory", () => {
+  it.each([true, false])(
+    "includes dependency-only Evidence exactly when reachable: %s",
+    (reachable) => {
+      const coverage = dependencyReconstructionCoverageData({
+        "cli.help": reachable ? ["dep"] : [],
+        dep: [],
+      });
+      const input = createReconstructionCoverageData({
+        ...coverage,
+        surfaces: coverage.surfaces.map((surface) =>
+          surface.surface_id === "dep"
+            ? {
+                ...surface,
+                evidence_ids: [reconstructionCoverageEvidenceId("1")],
+              }
+            : surface,
+        ),
+      });
+      const result = evaluateReconstructionClosure(
+        input,
+        "replacement.cli",
+        RECONSTRUCTION_COVERAGE_NOW,
+      );
+      expect(result.status).toBe("ready");
+      expect(
+        result.evidence_ids.includes(reconstructionCoverageEvidenceId("1")),
+      ).toBe(reachable);
+      expect(result.evidence_ids).toContain(
+        reconstructionCoverageEvidenceId("2"),
+      );
+    },
+  );
+
+  const cases: Array<{
+    name: string;
+    edges: Readonly<Record<string, readonly string[]>>;
+    status: "ready" | "partial";
+    subject: string | null;
+  }> = [
+    {
+      name: "direct missing dependency",
+      edges: { "cli.help": ["absent"] },
+      status: "partial",
+      subject: "cli.help",
+    },
+    {
+      name: "transitive missing dependency",
+      edges: { "cli.help": ["dep"], dep: ["absent"] },
+      status: "partial",
+      subject: "dep",
+    },
+    {
+      name: "shared missing frontier",
+      edges: {
+        "cli.help": ["left", "right"],
+        left: ["shared"],
+        right: ["shared"],
+        shared: ["absent"],
+      },
+      status: "partial",
+      subject: "shared",
+    },
+    {
+      name: "cycle with missing dependency",
+      edges: { "cli.help": ["dep"], dep: ["cli.help", "absent"] },
+      status: "partial",
+      subject: "dep",
+    },
+    {
+      name: "complete cycle",
+      edges: { "cli.help": ["dep"], dep: ["cli.help"] },
+      status: "ready",
+      subject: null,
+    },
+    {
+      name: "unrelated missing dependency",
+      edges: { "cli.help": [], unrelated: ["absent"] },
+      status: "ready",
+      subject: null,
+    },
+  ];
+  it.each(cases)(
+    "checks the reachable inventory for $name",
+    ({ edges, status, subject }) => {
+      const coverage = dependencyReconstructionCoverageData(edges);
+      const original = JSON.stringify(coverage);
+      const result = evaluateReconstructionClosure(
+        coverage,
+        "replacement.cli",
+        RECONSTRUCTION_COVERAGE_NOW,
+      );
+      expect(result.status).toBe(status);
+      expect(result.summary.required_surfaces).toBe(1);
+      expect(result.reasons).toEqual(
+        subject === null
+          ? []
+          : [
+              {
+                code: "dependency-surface-missing",
+                subject_id: subject,
+                detail: "Declared dependency surface is absent: absent",
+              },
+            ],
+      );
+      expect(result.recommended_probes).toEqual(
+        subject === null
+          ? []
+          : [
+              {
+                operation: "update_authoritative_inventory",
+                subject_id: subject,
+                rationale: "Declared dependency surface is absent: absent",
+              },
+            ],
+      );
+      expect(JSON.stringify(coverage)).toBe(original);
+    },
+  );
+});
+
+describe("reconstruction contradictions on the reachable inventory", () => {
+  const cases: Array<{
+    name: string;
+    edges: Readonly<Record<string, readonly string[]>>;
+    surfaceIds: readonly string[];
+    claimIds: readonly string[];
+    contradictionStatus: "active" | "resolved";
+    affected: boolean;
+  }> = [
+    {
+      name: "required surface",
+      edges: { "cli.help": ["dep"], dep: [] },
+      surfaceIds: ["cli.help"],
+      claimIds: [],
+      contradictionStatus: "active",
+      affected: true,
+    },
+    {
+      name: "direct dependency",
+      edges: { "cli.help": ["dep"], dep: [] },
+      surfaceIds: ["dep"],
+      claimIds: [],
+      contradictionStatus: "active",
+      affected: true,
+    },
+    {
+      name: "transitive dependency",
+      edges: { "cli.help": ["mid"], mid: ["dep"], dep: [] },
+      surfaceIds: ["dep"],
+      claimIds: [],
+      contradictionStatus: "active",
+      affected: true,
+    },
+    {
+      name: "cycle dependency",
+      edges: { "cli.help": ["dep"], dep: ["cli.help"] },
+      surfaceIds: ["dep"],
+      claimIds: [],
+      contradictionStatus: "active",
+      affected: true,
+    },
+    {
+      name: "shared dependency",
+      edges: {
+        "cli.help": ["left", "right"],
+        left: ["dep"],
+        right: ["dep"],
+        dep: [],
+      },
+      surfaceIds: ["dep", "left"],
+      claimIds: [],
+      contradictionStatus: "active",
+      affected: true,
+    },
+    {
+      name: "unrelated inventory",
+      edges: { "cli.help": [], dep: [] },
+      surfaceIds: ["dep"],
+      claimIds: [],
+      contradictionStatus: "active",
+      affected: false,
+    },
+    {
+      name: "resolved dependency",
+      edges: { "cli.help": ["dep"], dep: [] },
+      surfaceIds: ["dep"],
+      claimIds: [],
+      contradictionStatus: "resolved",
+      affected: false,
+    },
+    {
+      name: "required claim without surface IDs",
+      edges: { "cli.help": [] },
+      surfaceIds: [],
+      claimIds: ["claim.cli.help"],
+      contradictionStatus: "active",
+      affected: true,
+    },
+    {
+      name: "unrelated claim",
+      edges: { "cli.help": [] },
+      surfaceIds: [],
+      claimIds: ["claim.unrelated"],
+      contradictionStatus: "active",
+      affected: false,
+    },
+  ];
+  it.each(cases)(
+    "fails closed only for an active contradiction affecting $name",
+    ({ edges, surfaceIds, claimIds, contradictionStatus, affected }) => {
+      const coverage = contradictionReconstructionCoverageData(
+        dependencyReconstructionCoverageData(edges),
+        surfaceIds,
+        contradictionStatus,
+        claimIds,
+      );
+      const original = JSON.stringify(coverage);
+      const result = evaluateReconstructionClosure(
+        coverage,
+        "replacement.cli",
+        RECONSTRUCTION_COVERAGE_NOW,
+      );
+      const reasons = affected
+        ? [
+            {
+              code: "active-contradiction",
+              subject_id: "contradiction.fixture",
+              detail: "Active contradiction affects the completion boundary.",
+            },
+          ]
+        : [];
+      expect(result.status).toBe(affected ? "failed" : "ready");
+      expect(result.reasons).toEqual(reasons);
+      expect(result.summary).toEqual({
+        required_surfaces: 1,
+        required_claims: 1,
+        reasons: reasons.length,
+      });
+      expect(result.recommended_probes).toEqual(
+        affected
+          ? [
+              {
+                operation: "resolve_contradiction",
+                subject_id: "contradiction.fixture",
+                rationale:
+                  "Active contradiction affects the completion boundary.",
+              },
+            ]
+          : [],
+      );
+      expect(
+        result.evidence_ids.includes(reconstructionCoverageEvidenceId("1")),
+      ).toBe(affected);
+      expect(JSON.stringify(coverage)).toBe(original);
+    },
+  );
 });

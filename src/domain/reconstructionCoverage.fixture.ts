@@ -3,6 +3,7 @@ import { createEvidenceBundle } from "./evidenceBundle.js";
 import {
   createReconstructionCoverageData,
   createReconstructionVerifierContract,
+  type ReconstructionCoverageData,
 } from "./reconstructionCoverage.js";
 
 const digest = (character: string): string => character.repeat(64);
@@ -158,3 +159,51 @@ export const completeReconstructionCoverageFixture = () => {
     throw new Error("Expected complete reconstruction coverage fixture");
   return { workspace, result, boundary };
 };
+
+/** Build a declared dependency inventory using the complete coverage fixture. */
+export const dependencyReconstructionCoverageData = (
+  dependencies: Readonly<Record<string, readonly string[]>>,
+  observedAt = new Date(RECONSTRUCTION_COVERAGE_NOW).toISOString(),
+) => {
+  const coverage = completeReconstructionCoverageData();
+  const surface = coverage.surfaces[0];
+  if (surface === undefined) throw new Error("Expected fixture surface");
+  return createReconstructionCoverageData({
+    ...coverage,
+    surfaces: Object.entries(dependencies).map(
+      ([surfaceId, dependencyIds]) => ({
+        ...surface,
+        surface_id: surfaceId,
+        occurrence_id: null,
+        dependency_surface_ids: [...dependencyIds],
+      }),
+    ),
+    verifier_results: coverage.verifier_results.map((result) => ({
+      ...result,
+      observed_at: observedAt,
+    })),
+  });
+};
+
+/** Attach one explicit contradiction to an otherwise unchanged coverage snapshot. */
+export const contradictionReconstructionCoverageData = (
+  coverage: ReconstructionCoverageData,
+  surfaceIds: readonly string[],
+  status: "active" | "resolved" = "active",
+  claimIds: readonly string[] = [],
+) =>
+  createReconstructionCoverageData({
+    ...coverage,
+    contradictions: [
+      {
+        contradiction_id: "contradiction.fixture",
+        status,
+        surface_ids: [...surfaceIds],
+        claim_ids: [...claimIds],
+        evidence_ids: [
+          reconstructionCoverageEvidenceId("1"),
+          reconstructionCoverageEvidenceId("2"),
+        ],
+      },
+    ],
+  });

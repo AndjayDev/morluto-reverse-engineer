@@ -314,9 +314,9 @@ export const evaluateReconstructionClosure = (
     reasons: [],
     evidenceIds: new Set<string>(),
   };
-  evaluateReconstructionSurfaces(context);
+  const reachableSurfaceIds = evaluateReconstructionSurfaces(context);
   evaluateReconstructionClaims(context);
-  evaluateReconstructionCoverageRisks(context);
+  evaluateReconstructionCoverageRisks(context, reachableSurfaceIds);
   evaluateReconstructionPackageProofs(context);
   const reasons = [...context.reasons].sort(reasonOrder);
   return reconstructionClosureResultSchema.parse({

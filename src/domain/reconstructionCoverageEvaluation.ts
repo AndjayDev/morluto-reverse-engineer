@@ -50,8 +50,13 @@ export interface ReconstructionEvaluationContext extends ParsedReconstructionCov
 
 export const evaluateReconstructionSurfaces = (
   context: ReconstructionEvaluationContext,
-): void => {
-  for (const surfaceId of context.boundary.required_surface_ids) {
+): ReadonlySet<string> => {
+  const required = new Set(context.boundary.required_surface_ids);
+  const pending = [...required];
+  const scheduled = new Set(required);
+  for (let index = 0; index < pending.length; index += 1) {
+    const surfaceId = pending[index];
+    if (surfaceId === undefined) continue;
     const surface = context.surfaces.get(surfaceId);
     if (surface === undefined) {
       addReason(
@@ -63,7 +68,7 @@ export const evaluateReconstructionSurfaces = (
       continue;
     }
     addEvidence(context, surface.evidence_ids);
-    for (const dependencyId of surface.dependency_surface_ids)
+    for (const dependencyId of surface.dependency_surface_ids) {
       if (!context.surfaces.has(dependencyId))
         addReason(
           context,
@@ -71,8 +76,15 @@ export const evaluateReconstructionSurfaces = (
           surfaceId,
           `Declared dependency surface is absent: ${dependencyId}`,
         );
-    evaluateOwner(context, surfaceId);
+      else if (!scheduled.has(dependencyId)) {
+        scheduled.add(dependencyId);
+        pending.push(dependencyId);
+      }
+    }
+    // Owner obligations remain scoped to explicitly required surfaces.
+    if (required.has(surfaceId)) evaluateOwner(context, surfaceId);
   }
+  return scheduled;
 };
 
 const evaluateOwner = (
@@ -386,6 +398,7 @@ const verifierResultMatchesContract = (
 
 export const evaluateReconstructionCoverageRisks = (
   context: ReconstructionEvaluationContext,
+  reachableSurfaceIds: ReadonlySet<string>,
 ): void => {
   for (const unknownId of context.coverage.residual_unknown_ids)
     if (!context.boundary.allowed_unknown_ids.includes(unknownId))
@@ -398,9 +411,7 @@ export const evaluateReconstructionCoverageRisks = (
   for (const contradiction of context.coverage.contradictions)
     if (
       contradiction.status === "active" &&
-      (contradiction.surface_ids.some((id) =>
-        context.boundary.required_surface_ids.includes(id),
-      ) ||
+      (contradiction.surface_ids.some((id) => reachableSurfaceIds.has(id)) ||
         contradiction.claim_ids.some((id) =>
           context.boundary.required_claim_ids.includes(id),
         ))
