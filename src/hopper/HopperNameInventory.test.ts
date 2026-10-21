@@ -124,6 +124,7 @@ describe("Hopper name inventory labels", () => {
       sha256: "a".repeat(64),
       kind: "database",
       format: "analysis-database",
+      databaseEngine: "hopper",
     });
 
     const result = await client.execute("list_names", {});

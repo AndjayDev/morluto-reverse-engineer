@@ -24,7 +24,11 @@ export const sameIdaHostPath = (left: string, right: string): boolean =>
 export const resolveIdaWorkspaceParent = (root = tmpdir()): Promise<string> =>
   realpath(normalize(root));
 
-/** Private input copy isolates upstream database and sidecar writes from the original. */
+/**
+ * Private input copy isolates upstream database and sidecar writes from the
+ * original. An IDA database target is copied whole, so the worker unpacks and
+ * releases only the copy; the selected database is never opened for writing.
+ */
 export class IdaWorkspace {
   readonly sessionId = `rea-${randomUUID()}`;
   #inputSha256: string | undefined;
