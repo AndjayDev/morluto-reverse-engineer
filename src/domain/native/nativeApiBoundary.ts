@@ -95,7 +95,7 @@ const availableNativeApiBoundarySchema = z
     calling_convention: z.string().min(1),
     return_type: inferredReturnTypeSchema,
     parameters: z.array(inferredParameterTypeSchema),
-    varargs: z.boolean().nullable().optional(),
+    varargs: z.boolean().nullable().default(null),
     jump_tables: z.array(inferredJumpTableSchema),
     pseudocode: z
       .object({
