@@ -3,7 +3,9 @@ import { readEffectiveClientRegistrationConfiguration } from "./ClientConfigurat
 import {
   clientServerForcedEnabled,
   clientServerListedDisabled,
+  codexApprovalModeSchema,
   effectiveClientServer,
+  parseCodexToolEntry,
   type ClientConfigurationDocument,
 } from "./ClientConfigurationDocument.js";
 import { lstat } from "node:fs/promises";
@@ -98,7 +100,9 @@ const registrationSchema = z
     type: z.string().optional(),
     transport: z.string().optional(),
     serverName: z.string().optional(),
-    tools: z.array(z.string()).optional(),
+    tools: z
+      .union([z.array(z.string()), z.record(z.string(), z.unknown())])
+      .optional(),
     disabled: z.boolean().optional(),
     enabled: z.boolean().optional(),
   })
@@ -460,6 +464,7 @@ const parseRegistration = (
       .pick({ command: true, args: true, serverName: true, transport: true })
       .strip()
       .parse(value);
+  let target = value;
   if (client.format === "opencode") {
     const entry = z
       .object({
@@ -470,13 +475,45 @@ const parseRegistration = (
       .passthrough()
       .parse(value);
     const [command = "", ...args] = entry.command;
-    return registrationSchema.parse({
+    target = {
       ...entry,
       command,
       args,
-    });
+    };
   }
-  const registration = registrationSchema.parse(value);
+  const registration = registrationSchema.parse(target);
+  if (client.name === "codex") {
+    if (Object.hasOwn(registration, "default_tools_approval_mode")) {
+      codexApprovalModeSchema.parse(
+        Reflect.get(registration, "default_tools_approval_mode"),
+      );
+    }
+    if (
+      Array.isArray(registration.tools) ||
+      registration.tools instanceof Date
+    ) {
+      throw new TypeError(
+        "Expected Codex tools to be a table of per-tool settings",
+      );
+    }
+    if (
+      registration.tools !== undefined &&
+      typeof registration.tools === "object" &&
+      registration.tools !== null
+    ) {
+      for (const toolValue of Object.values(registration.tools)) {
+        if (parseCodexToolEntry(toolValue).status !== "valid") {
+          throw new TypeError("Invalid Codex per-tool setting");
+        }
+      }
+    }
+  }
+  if (
+    client.name !== "codex" &&
+    registration.tools !== undefined &&
+    !Array.isArray(registration.tools)
+  )
+    throw new TypeError("Expected tools to be an array of strings");
   if (
     client.format === "kimi" &&
     registration.transport !== undefined &&

@@ -57,8 +57,114 @@ export interface ClientConfigurationDocument {
    */
   readonly legacyServers: Record<string, unknown>;
 }
-
 const objectSchema = z.record(z.string(), z.unknown());
+export const codexApprovalModeSchema = z.enum([
+  "approve",
+  "prompt",
+  "auto",
+  "writes",
+]);
+export const codexToolOutputTokenLimitSchema = z.union([
+  z.number().int().positive(),
+  z.bigint().positive(),
+]);
+
+const tomlFloatProperties = new WeakMap<object, ReadonlySet<string>>();
+
+/** Whether a parsed TOML table property was written as a float literal (such as `1.0` or `1e3`). */
+export const hasTomlFloatProperty = (value: object, key: string): boolean =>
+  tomlFloatProperties.get(value)?.has(key) === true;
+
+/** Transfer recorded TOML float property kinds from a source table to a repaired table. */
+export const copyTomlFloatProperties = (from: object, to: object): void => {
+  const source = tomlFloatProperties.get(from);
+  if (source === undefined || source.size === 0) return;
+  const target = new Set<string>();
+  for (const key of Object.keys(to)) {
+    if (source.has(key)) target.add(key);
+  }
+  if (target.size > 0) tomlFloatProperties.set(to, target);
+};
+
+export type CodexToolParseResult =
+  | { status: "valid"; value: unknown }
+  | { status: "repairable"; repaired: unknown }
+  | { status: "invalid" };
+
+/** Parse and validate a Codex per-tool setting at the document boundary. */
+export const parseCodexToolEntry = (value: unknown): CodexToolParseResult => {
+  if (typeof value !== "object" || value === null || value instanceof Date) {
+    return { status: "invalid" };
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return { status: "valid", value };
+    }
+    if (value.length > 2) {
+      return { status: "invalid" };
+    }
+    const [rawApproval, rawLimit] = value;
+    const parsedApproval = codexApprovalModeSchema.safeParse(rawApproval);
+    if (value.length === 1) {
+      return parsedApproval.success
+        ? { status: "valid", value }
+        : { status: "invalid" };
+    }
+    const hasFloat = hasTomlFloatProperty(value, "1");
+    const parsedLimit =
+      rawLimit !== undefined && !hasFloat
+        ? codexToolOutputTokenLimitSchema.safeParse(rawLimit)
+        : undefined;
+    if (parsedApproval.success && parsedLimit?.success) {
+      return { status: "valid", value };
+    }
+    if (parsedApproval.success) {
+      return { status: "repairable", repaired: [parsedApproval.data] };
+    }
+    if (parsedLimit?.success) {
+      return {
+        status: "repairable",
+        repaired: { output_token_limit: parsedLimit.data },
+      };
+    }
+    return { status: "invalid" };
+  }
+  const rawEntries = Object.entries(value);
+  if (rawEntries.length === 0) {
+    return { status: "valid", value };
+  }
+  let hasRepair = false;
+  const repaired: Record<string, unknown> = Object.create(null);
+  for (const [key, prop] of rawEntries) {
+    if (key === "approval_mode") {
+      const parsedApproval = codexApprovalModeSchema.safeParse(prop);
+      if (parsedApproval.success) {
+        repaired[key] = parsedApproval.data;
+      } else {
+        hasRepair = true;
+      }
+    } else if (key === "output_token_limit") {
+      if (hasTomlFloatProperty(value, key)) {
+        hasRepair = true;
+      } else {
+        const parsedLimit = codexToolOutputTokenLimitSchema.safeParse(prop);
+        if (parsedLimit.success) {
+          repaired[key] = parsedLimit.data;
+        } else {
+          hasRepair = true;
+        }
+      }
+    } else {
+      repaired[key] = prop;
+    }
+  }
+  if (hasRepair) {
+    if (Object.keys(repaired).length === 0) return { status: "invalid" };
+    copyTomlFloatProperties(value, repaired);
+    return { status: "repairable", repaired };
+  }
+  return { status: "valid", value };
+};
 
 /** Compare parsed configuration values without depending on parser prototypes. */
 export const clientConfigurationValuesEqual = (
@@ -109,28 +215,64 @@ const isEmptyClientConfigurationText = (text: string): boolean =>
 
 const INT64_MIN = -(2n ** 63n);
 const INT64_MAX = 2n ** 63n - 1n;
+const SAFE_INT_MIN = BigInt(Number.MIN_SAFE_INTEGER);
+const SAFE_INT_MAX = BigInt(Number.MAX_SAFE_INTEGER);
+
+const normalizeTomlInteger = (value: bigint): number | bigint => {
+  if (value < INT64_MIN || value > INT64_MAX)
+    throw new SyntaxError(
+      `Invalid TOML document: integer ${String(value)} is outside the signed 64-bit range`,
+    );
+  return value >= SAFE_INT_MIN && value <= SAFE_INT_MAX ? Number(value) : value;
+};
 
 /**
- * Parse client TOML with TOML 1.0's signed 64-bit integer contract. Integers
- * beyond JavaScript's safe range stay exact as bigint; values outside Int64,
- * which Codex rejects, are malformed.
+ * Parse client TOML with TOML 1.0's signed 64-bit integer contract. Safe
+ * integers normalize to `number`, integers beyond JavaScript's safe range stay
+ * exact as `bigint`, and TOML float properties (including integral floats like
+ * `1.0` or `1e3`) are recorded before safe-integer normalization.
  */
 const parseClientToml = (text: string): Record<string, unknown> => {
-  const parsed = parseToml(text, { integersAsBigInt: "asNeeded" });
+  const parsed = parseToml(text, { integersAsBigInt: true });
   const pending: unknown[] = [parsed];
   for (let value = pending.pop(); value !== undefined; value = pending.pop()) {
-    if (typeof value === "bigint") {
-      if (value < INT64_MIN || value > INT64_MAX)
-        throw new SyntaxError(
-          `Invalid TOML document: integer ${String(value)} is outside the signed 64-bit range`,
-        );
+    if (Array.isArray(value)) {
+      const floatKeys = new Set<string>();
+      for (let index = 0; index < value.length; index += 1) {
+        const element: unknown = value[index];
+        if (typeof element === "bigint") {
+          value[index] = normalizeTomlInteger(element);
+        } else if (typeof element === "number") {
+          floatKeys.add(String(index));
+        } else if (
+          typeof element === "object" &&
+          element !== null &&
+          !(element instanceof Date)
+        )
+          pending.push(element);
+      }
+      if (floatKeys.size > 0) tomlFloatProperties.set(value, floatKeys);
     } else if (
       typeof value === "object" &&
       value !== null &&
       !(value instanceof Date)
-    )
-      // Large documents can exceed argument limits, so do not spread.
-      for (const nested of Object.values(value)) pending.push(nested);
+    ) {
+      const record = value as Record<string, unknown>;
+      const floatKeys = new Set<string>();
+      for (const [key, nested] of Object.entries(record)) {
+        if (typeof nested === "bigint") {
+          record[key] = normalizeTomlInteger(nested);
+        } else if (typeof nested === "number") {
+          floatKeys.add(key);
+        } else if (
+          typeof nested === "object" &&
+          nested !== null &&
+          !(nested instanceof Date)
+        )
+          pending.push(nested);
+      }
+      if (floatKeys.size > 0) tomlFloatProperties.set(record, floatKeys);
+    }
   }
   return parsed;
 };
@@ -978,6 +1120,51 @@ const withoutTrailingLineFeeds = (text: string): string => {
 };
 
 /**
+ * Format TOML properties whose parsed kind was a float literal with `.0` when
+ * stringified as integer literals.
+ */
+const formatTomlFloats = (
+  text: string,
+  root: Record<string, unknown>,
+): string => {
+  const lines = text.split("\n");
+  let tablePath: readonly string[] = [];
+  const result: string[] = [];
+  for (const physical of lines) {
+    const line = physical.endsWith("\r") ? physical.slice(0, -1) : physical;
+    const header = parseTomlTableHeader(line);
+    if (header !== undefined) {
+      tablePath = header.path;
+      result.push(physical);
+      continue;
+    }
+    const assignment = parseAssignment(line);
+    if (assignment !== undefined) {
+      const targetTable = valueAt(root, tablePath);
+      if (
+        typeof targetTable === "object" &&
+        targetTable !== null &&
+        assignment.segments.length === 1
+      ) {
+        const propName = assignment.segments[0] ?? "";
+        if (hasTomlFloatProperty(targetTable, propName)) {
+          const beforeEquals = physical.slice(0, assignment.equals + 1);
+          const afterEquals = physical.slice(assignment.equals + 1);
+          const match = afterEquals.match(/^(\s*)([-+]?\d+)(\s*(?:#.*)?)$/);
+          if (match !== null) {
+            const [, wsBefore, num, wsAfter] = match;
+            result.push(`${beforeEquals}${wsBefore}${num}.0${wsAfter}`);
+            continue;
+          }
+        }
+      }
+    }
+    result.push(physical);
+  }
+  return result.join("\n");
+};
+
+/**
  * Replace REA's TOML server tables and assignments. Comments that introduce a
  * following table stay. Codex also retains comments around REA's own table.
  * Text inside strings is not treated as a header. Only Grok Build reads the
@@ -1154,8 +1341,9 @@ const upsertTomlServerSection = (
   // The last kept CRLF line has no following LF from the join.
   if (body.endsWith("\r")) body += "\n";
   if (entry !== undefined && !inlineServerTable) {
+    const serverDocument = { mcp_servers: { [serverKey]: entry } };
     let fragment = withoutTrailingLineFeeds(
-      stringifyToml({ mcp_servers: { [serverKey]: entry } }),
+      formatTomlFloats(stringifyToml(serverDocument), serverDocument),
     );
     if (crlf) fragment = fragment.replaceAll("\n", "\r\n");
     const nl = crlf ? "\r\n" : "\n";
@@ -1269,7 +1457,7 @@ const serializeCodexConfiguration = (
     originalText === undefined ||
     isEmptyClientConfigurationText(originalText)
   )
-    return stringifyToml(document);
+    return formatTomlFloats(stringifyToml(document), document);
   const upserted = upsertTomlServerSection(
     originalText,
     PRODUCT_IDENTITY.mcpServerKey,
@@ -1281,7 +1469,9 @@ const serializeCodexConfiguration = (
     originalText.endsWith("\n") && !upserted.endsWith("\n")
       ? `${upserted}${originalText.endsWith("\r\n") ? "\r\n" : "\n"}`
       : upserted;
-  return tomlTextHolds(edited, document) ? edited : stringifyToml(document);
+  return tomlTextHolds(edited, document)
+    ? edited
+    : formatTomlFloats(stringifyToml(document), document);
 };
 
 const tomlTextHolds = (

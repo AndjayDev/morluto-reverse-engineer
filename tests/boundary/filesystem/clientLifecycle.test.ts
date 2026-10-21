@@ -21,6 +21,10 @@ import { clearClientLocationEnvironment } from "../../fixtures/clientEnvironment
 import { supportedClients } from "../../../src/application/SupportedClients.js";
 import { PRODUCT_IDENTITY } from "../../../src/identity.js";
 
+import {
+  hasTomlFloatProperty,
+  parseClientConfiguration,
+} from "../../../src/application/ClientConfigurationDocument.js";
 import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
 import { configureClientConfiguration } from "../../../src/application/SetupClientConfiguration.js";
 import { readConfigurationFile } from "../../../src/application/ClientConfigurationFiles.js";
@@ -198,6 +202,617 @@ describe("Codex MCP tool deadlines", () => {
     const configured = await readFile(configPath, "utf8");
     expect(configured).toContain("startup_timeout_sec = 5");
     expect(configured).toContain("tool_timeout_sec = 10");
+  });
+});
+
+describe("Codex per-tool configuration", () => {
+  it("preserves caller-selected Codex per-tool settings during refresh and remains idempotent", async () => {
+    const home = await createTestTempDirectory("rea-codex-tools-preserve-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const entry = join(home, "rea.mjs");
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "old-rea"',
+      'args = ["mcp"]',
+      "startup_timeout_sec = 30",
+      "tool_timeout_sec = 450",
+      "",
+      "[mcp_servers.rea.tools.binary_session]",
+      'approval_mode = "approve"',
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    const launcher = [process.execPath, entry, "mcp"];
+    expect(await configureClientConfiguration(client, {}, launcher)).toEqual({
+      status: "configured",
+      backupPath: `${configPath}.rea.backup`,
+    });
+    expect(await readFile(`${configPath}.rea.backup`, "utf8")).toBe(original);
+
+    const configured = await readFile(configPath, "utf8");
+    expect(parseToml(configured)).toEqual({
+      mcp_servers: {
+        rea: {
+          command: process.execPath,
+          args: [entry, "mcp"],
+          startup_timeout_sec: 30,
+          tool_timeout_sec: 450,
+          tools: {
+            binary_session: {
+              approval_mode: "approve",
+            },
+          },
+        },
+      },
+    });
+    expect(await configureClientConfiguration(client, {}, launcher)).toEqual({
+      status: "unchanged",
+    });
+    expect(
+      await readClientRegistrationStatuses(home, entry, { environment: {} }),
+    ).toEqual([
+      expect.objectContaining({
+        client: "codex",
+        state: "aligned",
+        remediation: null,
+      }),
+    ]);
+  });
+});
+
+describe("Codex mixed tools repair", () => {
+  it("replaces a malformed Codex tools value when refreshing the registration", async () => {
+    const home = await createTestTempDirectory("rea-codex-tools-repair-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    await writeFile(
+      configPath,
+      '[mcp_servers.rea]\ncommand = "old-rea"\nargs = ["mcp"]\ntools = ["*"]\n',
+    );
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "configured" });
+    expect(parseToml(await readFile(configPath, "utf8"))).toEqual({
+      mcp_servers: {
+        rea: {
+          command: "rea",
+          args: ["mcp"],
+          startup_timeout_sec: 30,
+          tool_timeout_sec: 450,
+        },
+      },
+    });
+  });
+
+  it("preserves valid Codex per-tool approval settings when repairing a mixed tools table", async () => {
+    const home = await createTestTempDirectory("rea-codex-tools-mixed-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "old-rea"',
+      'args = ["mcp"]',
+      "",
+      "[mcp_servers.rea.tools.valid_tool]",
+      'approval_mode = "approve"',
+      "",
+      "[mcp_servers.rea.tools.broken_tool]",
+      "approval_mode = 12",
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "configured" });
+
+    const configured = await readFile(configPath, "utf8");
+    expect(parseToml(configured)).toMatchObject({
+      mcp_servers: {
+        rea: {
+          command: "rea",
+          args: ["mcp"],
+          startup_timeout_sec: 30,
+          tool_timeout_sec: 450,
+          tools: {
+            valid_tool: {
+              approval_mode: "approve",
+            },
+          },
+        },
+      },
+    });
+    expect(parseToml(configured)).not.toHaveProperty(
+      "mcp_servers.rea.tools.broken_tool",
+    );
+  });
+
+  it("preserves valid Codex per-tool tables when scalar members appear under tools", async () => {
+    const home = await createTestTempDirectory("rea-codex-tools-scalar-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "old-rea"',
+      'args = ["mcp"]',
+      "",
+      "[mcp_servers.rea.tools]",
+      'bad_scalar = "approve"',
+      "",
+      "[mcp_servers.rea.tools.valid_tool]",
+      'approval_mode = "approve"',
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "configured" });
+
+    const configured = await readFile(configPath, "utf8");
+    expect(parseToml(configured)).toMatchObject({
+      mcp_servers: {
+        rea: {
+          command: "rea",
+          args: ["mcp"],
+          startup_timeout_sec: 30,
+          tool_timeout_sec: 450,
+          tools: {
+            valid_tool: {
+              approval_mode: "approve",
+            },
+          },
+        },
+      },
+    });
+  });
+});
+
+describe("Codex per-tool field repair and empty tools table preservation", () => {
+  it("preserves valid tool fields such as output_token_limit when repairing malformed approval_mode in a tool entry", async () => {
+    const home = await createTestTempDirectory("rea-codex-tools-field-repair-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "old-rea"',
+      'args = ["mcp"]',
+      "",
+      "[mcp_servers.rea.tools.partially_broken_tool]",
+      "approval_mode = 12",
+      "output_token_limit = 32000",
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "configured" });
+
+    const configured = await readFile(configPath, "utf8");
+    expect(parseToml(configured)).toMatchObject({
+      mcp_servers: {
+        rea: {
+          command: "rea",
+          args: ["mcp"],
+          startup_timeout_sec: 30,
+          tool_timeout_sec: 450,
+          tools: {
+            partially_broken_tool: {
+              output_token_limit: 32000,
+            },
+          },
+        },
+      },
+    });
+    expect(parseToml(configured)).not.toHaveProperty(
+      "mcp_servers.rea.tools.partially_broken_tool.approval_mode",
+    );
+  });
+
+  it.each(['"bad"', "1.0", "1e3"])(
+    "preserves valid tool fields such as approval_mode when repairing malformed output_token_limit %s in a tool entry",
+    async (invalidLimit) => {
+      const home = await createTestTempDirectory(
+        "rea-codex-tools-limit-repair-",
+      );
+      roots.push(home);
+      const configPath = join(home, ".codex/config.toml");
+      await mkdir(dirname(configPath), { recursive: true });
+      const original = [
+        "[mcp_servers.rea]",
+        'command = "rea"',
+        'args = ["mcp"]',
+        "startup_timeout_sec = 30",
+        "tool_timeout_sec = 450",
+        "",
+        "[mcp_servers.rea.tools.partially_broken_limit]",
+        'approval_mode = "approve"',
+        `output_token_limit = ${invalidLimit}`,
+        "",
+      ].join("\n");
+      await writeFile(configPath, original);
+
+      const client = { name: "codex", configPath, format: "toml" } as const;
+      expect(
+        await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+      ).toMatchObject({ status: "configured" });
+
+      const configured = await readFile(configPath, "utf8");
+      expect(parseToml(configured)).toMatchObject({
+        mcp_servers: {
+          rea: {
+            command: "rea",
+            args: ["mcp"],
+            startup_timeout_sec: 30,
+            tool_timeout_sec: 450,
+            tools: {
+              partially_broken_limit: {
+                approval_mode: "approve",
+              },
+            },
+          },
+        },
+      });
+      expect(parseToml(configured)).not.toHaveProperty(
+        "mcp_servers.rea.tools.partially_broken_limit.output_token_limit",
+      );
+    },
+  );
+
+  it("retains an explicitly empty Codex tools table and remains unchanged on refresh", async () => {
+    const home = await createTestTempDirectory("rea-codex-empty-tools-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "rea"',
+      'args = ["mcp"]',
+      "startup_timeout_sec = 30",
+      "tool_timeout_sec = 450",
+      "",
+      "[mcp_servers.rea.tools]",
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "unchanged" });
+
+    const configured = await readFile(configPath, "utf8");
+    expect(parseToml(configured)).toEqual({
+      mcp_servers: {
+        rea: {
+          command: "rea",
+          args: ["mcp"],
+          startup_timeout_sec: 30,
+          tool_timeout_sec: 450,
+          tools: {},
+        },
+      },
+    });
+  });
+});
+
+describe("Codex default_tools_approval_mode and writes approval mode preservation", () => {
+  it.each(["approve", "writes"] as const)(
+    "preserves server-level default_tools_approval_mode = %s on refresh",
+    async (mode) => {
+      const home = await createTestTempDirectory("rea-codex-default-mode-");
+      roots.push(home);
+      const configPath = join(home, ".codex/config.toml");
+      await mkdir(dirname(configPath), { recursive: true });
+      const original = [
+        "[mcp_servers.rea]",
+        'command = "rea"',
+        'args = ["mcp"]',
+        "startup_timeout_sec = 30",
+        "tool_timeout_sec = 450",
+        `default_tools_approval_mode = "${mode}"`,
+        "",
+      ].join("\n");
+      await writeFile(configPath, original);
+
+      const client = { name: "codex", configPath, format: "toml" } as const;
+      expect(
+        await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+      ).toMatchObject({ status: "unchanged" });
+
+      const configured = await readFile(configPath, "utf8");
+      expect(parseToml(configured)).toMatchObject({
+        mcp_servers: {
+          rea: {
+            command: "rea",
+            args: ["mcp"],
+            startup_timeout_sec: 30,
+            tool_timeout_sec: 450,
+            default_tools_approval_mode: mode,
+          },
+        },
+      });
+    },
+  );
+
+  it("repairs malformed default_tools_approval_mode during setup refresh", async () => {
+    const home = await createTestTempDirectory(
+      "rea-codex-repair-default-mode-",
+    );
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "rea"',
+      'args = ["mcp"]',
+      "startup_timeout_sec = 30",
+      "tool_timeout_sec = 450",
+      'default_tools_approval_mode = "bad"',
+      "",
+      "[mcp_servers.rea.tools.binary_session]",
+      'approval_mode = "writes"',
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "configured" });
+
+    const configured = await readFile(configPath, "utf8");
+    expect(parseToml(configured)).toMatchObject({
+      mcp_servers: {
+        rea: {
+          command: "rea",
+          args: ["mcp"],
+          startup_timeout_sec: 30,
+          tool_timeout_sec: 450,
+          tools: {
+            binary_session: {
+              approval_mode: "writes",
+            },
+          },
+        },
+      },
+    });
+    expect(parseToml(configured)).not.toHaveProperty(
+      "mcp_servers.rea.default_tools_approval_mode",
+    );
+  });
+});
+
+describe("Codex sequence-form tool settings preservation and repair", () => {
+  it("preserves sequence-form per-tool setting on refresh", async () => {
+    const home = await createTestTempDirectory("rea-codex-seq-preserve-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "rea"',
+      'args = ["mcp"]',
+      "startup_timeout_sec = 30",
+      "tool_timeout_sec = 450",
+      "",
+      "[mcp_servers.rea.tools]",
+      "empty_session = []",
+      'binary_session = ["approve", 12]',
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "unchanged" });
+
+    const configured = await readFile(configPath, "utf8");
+    expect(parseToml(configured)).toMatchObject({
+      mcp_servers: {
+        rea: {
+          command: "rea",
+          args: ["mcp"],
+          startup_timeout_sec: 30,
+          tool_timeout_sec: 450,
+          tools: {
+            empty_session: [],
+            binary_session: ["approve", 12],
+          },
+        },
+      },
+    });
+  });
+
+  it("repairs malformed sequence-form limit during setup refresh", async () => {
+    const home = await createTestTempDirectory("rea-codex-seq-repair-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "rea"',
+      'args = ["mcp"]',
+      "startup_timeout_sec = 30",
+      "tool_timeout_sec = 450",
+      "",
+      "[mcp_servers.rea.tools]",
+      'binary_session = ["approve", 1.0]',
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "configured" });
+
+    const configured = await readFile(configPath, "utf8");
+    expect(parseToml(configured)).toMatchObject({
+      mcp_servers: {
+        rea: {
+          command: "rea",
+          args: ["mcp"],
+          startup_timeout_sec: 30,
+          tool_timeout_sec: 450,
+          tools: {
+            binary_session: ["approve"],
+          },
+        },
+      },
+    });
+  });
+
+  it("repairs malformed sequence-form approval mode by retaining valid limit in table form", async () => {
+    const home = await createTestTempDirectory(
+      "rea-codex-seq-repair-approval-",
+    );
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "rea"',
+      'args = ["mcp"]',
+      "startup_timeout_sec = 30",
+      "tool_timeout_sec = 450",
+      "",
+      "[mcp_servers.rea.tools]",
+      'binary_session = ["unsupported", 32000]',
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "configured" });
+
+    const configured = await readFile(configPath, "utf8");
+    expect(parseToml(configured)).toMatchObject({
+      mcp_servers: {
+        rea: {
+          command: "rea",
+          args: ["mcp"],
+          startup_timeout_sec: 30,
+          tool_timeout_sec: 450,
+          tools: {
+            binary_session: {
+              output_token_limit: 32000,
+            },
+          },
+        },
+      },
+    });
+  });
+});
+
+describe("Codex per-tool date rejection and prototype safety", () => {
+  it("drops invalid Date tool settings during refresh", async () => {
+    const home = await createTestTempDirectory("rea-codex-date-tool-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "old-rea"',
+      'args = ["mcp"]',
+      "",
+      "[mcp_servers.rea.tools]",
+      "invalid_date = 2026-10-20T00:00:00Z",
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "configured" });
+
+    const configured = await readFile(configPath, "utf8");
+    expect(parseToml(configured)).not.toHaveProperty(
+      "mcp_servers.rea.tools.invalid_date",
+    );
+  });
+
+  it("preserves a per-tool setting named __proto__ without prototype side effects", async () => {
+    const home = await createTestTempDirectory("rea-codex-proto-tool-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "old-rea"',
+      'args = ["mcp"]',
+      "",
+      '[mcp_servers.rea.tools."__proto__"]',
+      'approval_mode = "approve"',
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "configured" });
+
+    const configured = await readFile(configPath, "utf8");
+    const parsed = parseToml(configured) as Record<string, unknown>;
+    const tools = (
+      (parsed.mcp_servers as Record<string, unknown>).rea as Record<
+        string,
+        unknown
+      >
+    ).tools as object;
+    expect(Object.hasOwn(tools, "__proto__")).toBe(true);
+  });
+
+  it("preserves TOML float kind for unknown passthrough settings during refresh", async () => {
+    const home = await createTestTempDirectory("rea-codex-float-passthrough-");
+    roots.push(home);
+    const configPath = join(home, ".codex/config.toml");
+    await mkdir(dirname(configPath), { recursive: true });
+    const original = [
+      "[mcp_servers.rea]",
+      'command = "old-rea"',
+      'args = ["mcp"]',
+      "",
+      "[mcp_servers.rea.tools.binary_session]",
+      'approval_mode = "invalid_mode"',
+      "output_token_limit = 32000",
+      "custom_future_ratio = 1.0",
+      "",
+    ].join("\n");
+    await writeFile(configPath, original);
+
+    const client = { name: "codex", configPath, format: "toml" } as const;
+    expect(
+      await configureClientConfiguration(client, {}, ["rea", "mcp"]),
+    ).toMatchObject({ status: "configured" });
+
+    const configured = await readFile(configPath, "utf8");
+    expect(configured).toContain("custom_future_ratio = 1.0");
+    const doc = parseClientConfiguration(configured, "toml");
+    const reaServer = (doc.document.mcp_servers as Record<string, unknown>)
+      .rea as Record<string, unknown>;
+    const sessionTool = (reaServer.tools as Record<string, unknown>)
+      .binary_session as object;
+    expect(hasTomlFloatProperty(sessionTool, "custom_future_ratio")).toBe(true);
   });
 });
 

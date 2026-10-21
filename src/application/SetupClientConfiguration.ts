@@ -12,9 +12,11 @@ import {
   clientConfigurationValuesEqual,
   clientServerListedDisabled,
   clientServerPath,
+  codexApprovalModeSchema,
   legacyClientServerPath,
   OMP_DISABLED_SERVERS_KEY,
   parseClientConfiguration,
+  parseCodexToolEntry,
   parseZcodeFallbackConfiguration,
   serializeClientConfiguration,
   withClientServers,
@@ -775,6 +777,12 @@ const clientConfigurationDesired = async (
     registrationEnvironment,
   );
   const previous = parsed?.servers[PRODUCT_IDENTITY.mcpServerKey];
+  const previousCodexTools =
+    client.name === "codex" ? codexTools(previous) : undefined;
+  const previousCodexDefaultToolsApprovalMode =
+    client.name === "codex"
+      ? codexDefaultToolsApprovalMode(previous)
+      : undefined;
   if (
     client.name === "kimi" &&
     typeof previous === "object" &&
@@ -798,6 +806,15 @@ const clientConfigurationDesired = async (
           tool_timeout_sec:
             positiveTimeout(previous, "tool_timeout_sec") ??
             recommendedMcpToolTimeoutSeconds(validated.value.timeoutInputs),
+          ...(previousCodexDefaultToolsApprovalMode === undefined
+            ? {}
+            : {
+                default_tools_approval_mode:
+                  previousCodexDefaultToolsApprovalMode,
+              }),
+          ...(previousCodexTools === undefined
+            ? {}
+            : { tools: previousCodexTools }),
         }
       : {}),
     ...(client.name === "kimi"
@@ -811,6 +828,55 @@ const clientConfigurationDesired = async (
         }
       : {}),
   };
+};
+
+const codexTools = (
+  registration: unknown,
+): Record<string, unknown> | undefined => {
+  if (
+    typeof registration !== "object" ||
+    registration === null ||
+    registration instanceof Date ||
+    !Object.hasOwn(registration, "tools")
+  )
+    return undefined;
+  const rawTools: unknown = Reflect.get(registration, "tools");
+  if (
+    typeof rawTools !== "object" ||
+    rawTools === null ||
+    rawTools instanceof Date ||
+    Array.isArray(rawTools)
+  )
+    return undefined;
+  const rawEntries = Object.entries(rawTools);
+  if (rawEntries.length === 0) {
+    return {};
+  }
+  const validTools = Object.create(null) as Record<string, unknown>;
+  for (const [toolName, toolConfig] of rawEntries) {
+    const parsed = parseCodexToolEntry(toolConfig);
+    if (parsed.status === "valid") {
+      validTools[toolName] = parsed.value;
+    } else if (parsed.status === "repairable") {
+      validTools[toolName] = parsed.repaired;
+    }
+  }
+  return Object.keys(validTools).length > 0 ? validTools : undefined;
+};
+
+const codexDefaultToolsApprovalMode = (
+  registration: unknown,
+): string | undefined => {
+  if (
+    typeof registration !== "object" ||
+    registration === null ||
+    !Object.hasOwn(registration, "default_tools_approval_mode")
+  )
+    return undefined;
+  const parsed = codexApprovalModeSchema.safeParse(
+    Reflect.get(registration, "default_tools_approval_mode"),
+  );
+  return parsed.success ? parsed.data : undefined;
 };
 
 const positiveTimeout = (
