@@ -128,7 +128,11 @@ export const writeEvidenceBundle = async (
   >
 > => {
   if (signal?.aborted === true)
-    return err(new AnalysisCancelledError("export_evidence_bundle"));
+    return err(
+      new AnalysisCancelledError("export_evidence_bundle", {
+        cause: signal.reason,
+      }),
+    );
   let checked: EvidenceBundle;
   try {
     checked = parseEvidenceBundle(bundle);
