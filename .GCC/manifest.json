@@ -1,0 +1,22 @@
+{
+  "gcc_manifest_version": "1.0.0",
+  "object_type": "repo_self_description",
+  "object_id": "MORLUTO_REA",
+  "repo": "AndjayDev/morluto-reverse-engineer",
+  "release": "rea-agents 6.7.0",
+  "release_branch": "release/6.7.0",
+  "release_commit": "27dc42d10249f0410904a75c0997842eb03b931c",
+  "upstream": "https://github.com/morluto/rea/releases/tag/rea-agents-6.7.0",
+  "this_branch": "gcc/rea-agents-6.7.0 = release/6.7.0 plus this .GCC folder",
+  "framework_drawer": "AndjayDev/acceler8zone-gcc :: .GCC/branches/morluto-reverse-engineer/",
+  "read_first": [
+    "AndjayDev/acceler8zone-gcc :: .GCC/branches/morluto-reverse-engineer/indexes/IDX_MANIFEST_REA.md",
+    "AGENTS.md"
+  ],
+  "rules": [
+    "Read the framework drawer's routing index before opening any path here.",
+    "Open files by named path and heading; never ingest the whole repository (4,339 files).",
+    "Release content is read from release/6.7.0; other branches of this fork are not the release.",
+    "One GitHub request per five seconds."
+  ]
+}
