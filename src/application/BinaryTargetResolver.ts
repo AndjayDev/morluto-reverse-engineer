@@ -31,7 +31,10 @@ import {
   admitRawBinary,
   rawBinarySelectionError,
 } from "../domain/rawBinary.js";
-import type { BinaryArchitecture } from "../domain/binaryTargetTypes.js";
+import type {
+  BinaryArchitecture,
+  RawProcessorVariant,
+} from "../domain/binaryTargetTypes.js";
 import { observeMzWindowsHeader } from "../domain/dosMz.js";
 import {
   createXmlPlistSignatureProbe,
@@ -72,6 +75,8 @@ export interface BinaryTargetResolverOptions {
   readonly formatHint?: ExecutableFormatHint;
   readonly architecture?: BinaryArchitecture;
   readonly entryPoint?: string;
+  readonly baseAddress?: string;
+  readonly processorVariant?: RawProcessorVariant;
   readonly signal?: AbortSignal;
 }
 
@@ -88,7 +93,15 @@ export const parseBinaryTarget = async (
 > => {
   const cwd = options.cwd ?? process.cwd();
   const hostArchitecture = options.hostArchitecture ?? process.arch;
-  const { targetKind, formatHint, signal, architecture, entryPoint } = options;
+  const {
+    targetKind,
+    formatHint,
+    signal,
+    architecture,
+    entryPoint,
+    baseAddress,
+    processorVariant,
+  } = options;
   const candidate = absoluteCallerPath(input, { cwd });
   try {
     throwIfTargetResolutionCancelled(signal);
@@ -124,6 +137,8 @@ export const parseBinaryTarget = async (
         const admitted = admitRawBinary({
           architecture,
           entryPoint,
+          baseAddress,
+          processorVariant,
           fileBytes: metadata.size,
         });
         if (!admitted.ok)
@@ -138,16 +153,16 @@ export const parseBinaryTarget = async (
           sha256: await sha256Handle(handle, path, metadata, signal),
           kind: "executable",
           format: "raw-binary",
-          architecture: admitted.value.architecture,
+          ...admitted.value,
           availableArchitectures: [admitted.value.architecture],
-          entryPoint: admitted.value.entryPoint,
-          entryPointSource: admitted.value.entryPointSource,
         });
       }
       const pairing = rawBinarySelectionError({
         ...(formatHint === undefined ? {} : { format: formatHint }),
         architecture,
         entryPoint,
+        baseAddress,
+        processorVariant,
       });
       if (pairing !== undefined)
         return err(
