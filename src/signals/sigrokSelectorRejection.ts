@@ -15,6 +15,23 @@ const rejectedSelector = (
 });
 
 /**
+ * A missing module named exactly after the decoder separates an unknown ID from
+ * an installed decoder whose own imports or code fail to load.
+ */
+const missingDecoderRefusal = (
+  lines: ReadonlySet<string>,
+  id: string,
+): string | undefined => {
+  const producerMessage = `Failed to load protocol decoder ${id}.`;
+  return lines.has(producerMessage) &&
+    lines.has(
+      `srd: ModuleNotFoundError: Failed to load decoder ${id}: import by name failed: No module named '${id}'`,
+    )
+    ? producerMessage
+    : undefined;
+};
+
+/**
  * Recognize only observed sigrok-cli 0.7.2 selector refusals whose rejected
  * name equals a caller-supplied selector; other failures stay unclassified.
  */
@@ -26,16 +43,9 @@ export const parseSigrokSelectorRejection = (
   // sigrok-cli stacks decoders with "," and appends options with ":".
   for (const entry of input.decoders.split(",")) {
     const id = entry.split(":")[0] ?? "";
-    const producerMessage = `Failed to load protocol decoder ${id}.`;
-    // A missing module named exactly after the decoder separates an unknown ID
-    // from an installed decoder whose own imports or code fail to load.
-    if (
-      id !== "" &&
-      lines.has(producerMessage) &&
-      lines.has(
-        `srd: ModuleNotFoundError: Failed to load decoder ${id}: import by name failed: No module named '${id}'`,
-      )
-    )
+    if (id === "") continue;
+    const producerMessage = missingDecoderRefusal(lines, id);
+    if (producerMessage !== undefined)
       return rejectedSelector("decoders", producerMessage);
   }
   // Annotation selections are "decoder=class:class,decoder".
@@ -49,4 +59,27 @@ export const parseSigrokSelectorRejection = (
     }
   }
   return undefined;
+};
+
+/**
+ * Recognize the same observed refusal when it names the decoder ID a caller
+ * asked help for; other failures, including refusals for other IDs, stay
+ * unclassified.
+ */
+export const parseSigrokDecoderHelpRejection = (
+  stderr: string,
+  decoder: string | null,
+): SigrokSelectorRejection | undefined => {
+  if (decoder === null) return undefined;
+  const producerMessage = missingDecoderRefusal(
+    new Set(stderr.split("\n")),
+    decoder,
+  );
+  return producerMessage === undefined
+    ? undefined
+    : {
+        path: ["decoder"],
+        reason: "invalid_value",
+        message: `sigrok-cli rejected the decoder help selector: ${producerMessage} Call inspect_signal_decoders without a decoder to list installed decoder IDs, or search the catalog with a query.`,
+      };
 };

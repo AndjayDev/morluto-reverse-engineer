@@ -300,6 +300,45 @@ it.each([
   },
 );
 
+it("reports a decoder help refusal as invalid caller input for the supplied decoder", async () => {
+  const f = await fixture("unknown-decoder");
+  const result = await f.service.inspectDecoders({ decoder: "nosuchdecoder" });
+  if (result.ok) throw new Error("Expected decoder help refusal");
+  expect(result.error._tag).toBe("AnalysisInputError");
+  expect(projectAnalysisError(result.error)).toMatchObject({
+    code: "invalid_request",
+    message: expect.stringContaining("inspect_signal_decoders"),
+    details: {
+      issues: [
+        {
+          path: ["decoder"],
+          reason: "invalid_value",
+          message: expect.stringContaining(
+            "Failed to load protocol decoder nosuchdecoder.",
+          ),
+        },
+      ],
+      captured_output: {
+        exit_code: 1,
+        stderr: expect.stringContaining(
+          "Failed to load protocol decoder nosuchdecoder.",
+        ),
+      },
+    },
+  });
+  expect(result.error.cleanupIncomplete).toBe(false);
+  await f.service.close();
+});
+
+it("keeps a decoder help refusal for another decoder as a provider failure", async () => {
+  const f = await fixture("unknown-decoder");
+  // The producer refuses `nosuchdecoder` while the caller asked help for `uart`.
+  const result = await f.service.inspectDecoders({ decoder: "uart" });
+  if (result.ok) throw new Error("Expected provider failure");
+  expect(result.error._tag).not.toBe("AnalysisInputError");
+  await f.service.close();
+});
+
 it.each([
   // An installed decoder whose own dependency is missing is an installation fault.
   ["broken-decoder", { decoders: "uart" }],

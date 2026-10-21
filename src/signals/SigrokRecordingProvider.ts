@@ -8,6 +8,7 @@ import {
   parseDecoderDiscovery,
 } from "./parseDecoderDiscovery.js";
 import {
+  parseSigrokDecoderHelpRejection,
   parseSigrokSelectorRejection,
   type SigrokSelectorRejection,
 } from "./sigrokSelectorRejection.js";
@@ -289,7 +290,9 @@ export class SigrokRecordingProvider implements SignalRecordingPort {
           input.decoder === null
             ? ["--dont-scan", "--list-supported"]
             : ["--dont-scan", `--protocol-decoders=${input.decoder}`, "--show"];
-        const output = await execute(args);
+        const output = await execute(args, (stderr) =>
+          parseSigrokDecoderHelpRejection(stderr, input.decoder),
+        );
         const report = signalDecodersSchema.parse({
           selection: input,
           ...parseDecoderDiscovery(output.stdout.text, input),
