@@ -567,6 +567,30 @@ describe("values the state started with", () => {
     expect(create("my%20org1", "Epsilon")).toBe("/api/orgs/my%20org1/books");
   });
 
+  it("creates in the loaded state's collection when the Evidence spells the same one differently", () => {
+    const { books, create } = twoOrgs("%61cme1", "acme1");
+    const { rea_state: held } = books.store.snapshot();
+    expect(
+      books.store.replace({
+        rea_state: {
+          version: held.version,
+          entities: held.entities.map((entity) =>
+            entity.collection.includes("%61cme1")
+              ? {
+                  ...entity,
+                  collection: entity.collection.replace("%61cme1", "a%63me1"),
+                  record_ordinals: [],
+                }
+              : entity,
+          ),
+          documents: held.documents,
+        },
+      }).ok,
+    ).toBe(true);
+    // Both spellings decode to the argument; the one holding books wins over the Evidence's emptied one.
+    expect(create("acme1", "Epsilon")).toBe("/api/orgs/a%63me1/books");
+  });
+
   it("forgets the spellings of a loaded state once reset", () => {
     const { books, create } = twoOrgs("%61cme1", "acme1");
     const { rea_state: held } = books.store.snapshot();

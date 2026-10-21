@@ -270,7 +270,8 @@ A create in a collection held under more than one spelling (`acme1` and
 `%61cme1`) goes to the one the call spells verbatim, as item calls choose their
 entity; a collection keeps its spelling after its last entity is deleted. A
 reset or load knows the spellings of the Evidence's state and of the state it
-installs, never those of a state it replaced. `data/add` refuses a document that `data/get` would write back past the
+installs, never those of a state it replaced; when two spellings fit a call
+equally, the one holding entities wins. `data/add` refuses a document that `data/get` would write back past the
 32 MiB intake limit once it adds the members a document may omit, such as
 `types` and the state Evidence id.
 

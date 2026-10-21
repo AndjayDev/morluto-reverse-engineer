@@ -246,7 +246,7 @@ const createdCollection = (
 ): string | undefined => {
   const segments = callSegments(request.tool, request.args);
   if (segments === undefined) return undefined;
-  // The spelling the call supplies verbatim wins, as item calls choose their entity; an emptied collection keeps its spelling.
+  // The spelling the call supplies verbatim wins, as item calls choose their entity, then the first known: held ones lead.
   let held: string | undefined;
   let verbatim = -1;
   for (const collection of serving.store.knownCollectionsOf(

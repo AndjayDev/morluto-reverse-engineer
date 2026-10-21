@@ -288,9 +288,14 @@ export class EnvironmentStateStore {
     return this.#typeCollections.get(type) ?? [];
   }
 
-  /** Every collection spelling a type's entities have been held under since the last reset or load, including ones that have since emptied. */
+  /** Every collection spelling a type's entities have been held under since the last reset or load, or the Evidence's state holds: those holding entities first. */
   knownCollectionsOf(type: string): readonly string[] {
-    return this.#knownCollections.get(type) ?? [];
+    return [
+      ...new Set([
+        ...this.collectionsOf(type),
+        ...(this.#knownCollections.get(type) ?? []),
+      ]),
+    ];
   }
 
   document(tool: string): HeldDocument | undefined {

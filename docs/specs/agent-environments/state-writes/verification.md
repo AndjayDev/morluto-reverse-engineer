@@ -253,3 +253,8 @@ collection spellings, so a create in a collection the loaded state does not
 hold keeps its recorded spelling. Each new test fails on the previous head. The
 verdicts over the 50 captures are unchanged plan by plan, the smoke applies all
 31 served write tools, and the gates passed again.
+
+A ninth round made a create prefer a collection the state holds over an equally
+fitting spelling known only from the Evidence, so a create after a load lands in
+the loaded collection and reads back. Its test fails on the previous head; the
+verdicts and the smoke are unchanged and the gates passed again.
